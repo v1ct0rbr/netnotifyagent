@@ -9,6 +9,11 @@ public class Alert {
     private final JFrame frame;
 
     private Alert() {
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            // Se falhar, ignora e usa o padrão
+        }
         frame = new JFrame();
         frame.setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
         frame.setUndecorated(true);
