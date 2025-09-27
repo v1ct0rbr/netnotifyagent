@@ -7,8 +7,6 @@ import java.util.Properties;
 import com.rabbitmq.client.ConnectionFactory;
 
 import br.gov.pb.der.netnotifyagent.utils.Functions;
-import lombok.Getter;
-import lombok.Setter;
 
 public class RabbitmqService {
 
@@ -20,6 +18,7 @@ public class RabbitmqService {
     private String password;
     private String exchangeName;
     private String virtualHost;
+    private int port;
 
     Properties settings;
 
@@ -71,12 +70,21 @@ public class RabbitmqService {
         this.settings = settings;
     }
 
+    public int getPort() {
+        return port;
+    }
+
+    public void setPort(int port) {
+        this.port = port;
+    }
+
     public ConnectionFactory rabbitConnectionFactory() {
         ConnectionFactory factory = new ConnectionFactory();
         factory.setHost(this.host);
         factory.setUsername(this.username);
         factory.setPassword(this.password);
         factory.setVirtualHost(this.virtualHost);
+        factory.setPort(this.port);
         return factory;
     }
 
@@ -88,7 +96,7 @@ public class RabbitmqService {
             this.password = settings.getProperty("rabbitmq.password");
             this.exchangeName = settings.getProperty("rabbitmq.exchange");
             this.virtualHost = settings.getProperty("rabbitmq.virtualhost", "/");
-
+            this.port = Integer.parseInt(settings.getProperty("rabbitmq.port", "5672"));
         } catch (IOException e) {
             e.printStackTrace();
         }
