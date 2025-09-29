@@ -32,6 +32,9 @@ public class RabbitmqService {
     private int port;
     private Properties settings;
     private volatile boolean shouldStop = false;
+    // status para exibir no tray
+    private volatile String status = "Stopped";
+    private volatile String lastError = "";
 
     public RabbitmqService() {
         loadConfiguration();
@@ -125,25 +128,35 @@ public class RabbitmqService {
 
         while (!shouldStop) {
             try {
-                System.out.println("Conectando ao RabbitMQ em " + host + ":" + port + "...");
+                status = "Connecting to " + host + ":" + port;
+                System.out.println(status + "...");
 
                 try (Connection connection = factory.newConnection();
                         Channel channel = connection.createChannel()) {
 
                     setupQueueAndExchangeConsumer(channel);
+                    status = "Connected to queue: " + queueName;
                     System.out.println("Conectado! Aguardando mensagens da fila: " + queueName);
 
                     waitForConnection();
 
                 } catch (ShutdownSignalException e) {
+                    lastError = "Shutdown: " + e.getMessage();
+                    status = "Disconnected";
                     System.err.println("Conexão fechada pelo servidor: " + e.getMessage());
                 } catch (IOException e) {
+                    lastError = "IO: " + e.getMessage();
+                    status = "Disconnected";
                     System.err.println("Erro de I/O na conexão: " + e.getMessage());
                 } catch (TimeoutException e) {
+                    lastError = "Timeout: " + e.getMessage();
+                    status = "Disconnected";
                     System.err.println("Timeout na conexão: " + e.getMessage());
                 }
 
             } catch (Exception e) {
+                lastError = e.getMessage();
+                status = "Disconnected";
                 System.err.println("Erro geral na conexão com RabbitMQ: " + e.getMessage());
             }
 
@@ -159,12 +172,35 @@ public class RabbitmqService {
             }
         }
 
+        status = "Stopped";
         System.out.println("Serviço RabbitMQ finalizado.");
     }
 
     public void stop() {
         this.shouldStop = true;
         System.out.println("Parando o serviço RabbitMQ...");
+    }
+
+    // getters para status
+    public String getStatus() {
+        return status;
+    }
+
+    public String getLastError() {
+        return lastError;
+    }
+
+    public String getSummary() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Host: ").append(host).append('\n');
+        sb.append("Port: ").append(port).append('\n');
+        sb.append("Queue: ").append(queueName).append('\n');
+        sb.append("Exchange: ").append(exchangeName != null ? exchangeName : "-").append('\n');
+        sb.append("Status: ").append(status);
+        if (lastError != null && !lastError.isEmpty()) {
+            sb.append("\nLast error: ").append(lastError);
+        }
+        return sb.toString();
     }
 
     // Getters para compatibilidade

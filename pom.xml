@@ -11,6 +11,9 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <javafx.version>20.0.2</javafx.version>
+        <!-- Ajuste o classifier conforme seu OS: win, linux, mac (por exemplo: win) -->
+        <javafx.classifier>win</javafx.classifier>
         <exec.mainClass>br.gov.pb.der.netnotifyagent.Netnotifyagent</exec.mainClass>
     </properties>
 
@@ -28,10 +31,39 @@
             <artifactId>jackson-databind</artifactId>
             <version>2.15.2</version>
         </dependency>
+
+        <!-- JavaFX: WebView (javafx-web) e controls (Stage, Scene) -->
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-controls</artifactId>
+            <version>${javafx.version}</version>
+            <classifier>${javafx.classifier}</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-web</artifactId>
+            <version>${javafx.version}</version>
+            <classifier>${javafx.classifier}</classifier>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-swing</artifactId>
+            <version>${javafx.version}</version>
+            <classifier>${javafx.classifier}</classifier>
+        </dependency>
     </dependencies>
 
     <build>
         <sourceDirectory>src/main/java</sourceDirectory>
+        <resources>
+            <resource>
+                <!-- include the project's resources folder so images and settings are available on the classpath -->
+                <directory>${project.basedir}/resources</directory>
+                <includes>
+                    <include>**/*</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <!-- Compiler plugin (com suporte ao Lombok) -->
             <plugin>
