@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Run Netnotifyagent (JavaFX)",
+            "request": "launch",
+            "mainClass": "br.gov.pb.der.netnotifyagent.Netnotifyagent",
+            "projectName": "netnotifyagent",
+            "vmArgs": "--module-path \"C:\\path\\to\\javafx-sdk-20.0.2\\lib\" --add-modules=javafx.controls,javafx.web"
+        }
+    ]
+}
