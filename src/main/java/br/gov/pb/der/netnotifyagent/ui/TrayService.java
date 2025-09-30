@@ -13,7 +13,6 @@ import java.io.InputStream;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javafx.application.Platform;
-import javafx.embed.swing.JFXPanel;
 import javafx.scene.Scene;
 import javafx.scene.control.TextArea;
 import javafx.scene.layout.VBox;
@@ -141,12 +140,13 @@ public class TrayService {
         if (fxInit.get()) return;
         synchronized (fxInit) {
             if (fxInit.get()) return;
-            // cria JFXPanel para inicializar toolkit
-            new JFXPanel();
-            fxInit.set(true);
+            try {
+                br.gov.pb.der.netnotifyagent.ui.FxJavaInitializer.init();
+                fxInit.set(true);
+            } catch (Exception e) {
+                System.err.println("Failed to initialize JavaFX in TrayService: " + e.getMessage());
+            }
         }
-        // aguarda curto período fora do synchronized
-        try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
 
     private void showAboutWindow(String about) {

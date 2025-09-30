@@ -16,7 +16,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import br.gov.pb.der.netnotifyagent.dto.Message;
 import br.gov.pb.der.netnotifyagent.utils.Constants;
 import javafx.application.Platform;
-import javafx.embed.swing.JFXPanel;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.ScrollPane;
@@ -47,13 +46,11 @@ public class Alert {
         synchronized (fxInitialized) {
             if (fxInitialized.get()) return;
             try {
-                // JFXPanel inicializa o toolkit quando criado
-                new JFXPanel();
-                Platform.setImplicitExit(false); // Evita que o JavaFX feche automaticamente
+                // Use centralized initializer
+                br.gov.pb.der.netnotifyagent.ui.FxJavaInitializer.init();
                 fxInitialized.set(true);
-                System.out.println("JavaFX toolkit initialized");
             } catch (Exception e) {
-                System.err.println("Failed to initialize JavaFX: " + e.getMessage());
+                System.err.println("Failed to initialize JavaFX via FxJavaInitializer: " + e.getMessage());
                 e.printStackTrace();
             }
         }
