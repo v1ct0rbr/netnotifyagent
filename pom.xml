@@ -63,22 +63,68 @@
 
     <build>
         <resources>
-            <!-- Recursos principais (images, properties, etc.) -->
+            <!-- recursos padrão Maven -->
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+
+            <!-- sua pasta 'resources' (copiada para target/classes por padrão) -->
             <resource>
                 <directory>resources</directory>
-                <includes>
-                    <include>**/*</include>
-                </includes>
-            </resource>
-            <!-- Scripts como recursos (opcional) -->
-            <resource>
-                <directory>src/main/scripts</directory>
-                <targetPath>scripts</targetPath>
-                <filtering>true</filtering>
+                <filtering>false</filtering>
             </resource>
         </resources>
-        
+
         <plugins>
+            <!-- copia e filtra scripts (substitui ${project.*}) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <!-- copia a pasta resources (não filtrada) para target/resources -->
+                    <execution>
+                        <id>copy-external-resources</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/resources</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>resources</directory>
+                                    <filtering>false</filtering>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+
+                    <!-- copia scripts para target/ com filtragem de propriedades Maven -->
+                    <execution>
+                        <id>copy-launcher-scripts</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>src/main/scripts</directory>
+                                    <filtering>true</filtering>
+                                    <includes>
+                                        <include>*.bat</include>
+                                        <include>*.ps1</include>
+                                        <include>*.sh</include>
+                                    </includes>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- Compiler -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -123,35 +169,6 @@
                         </manifest>
                     </archive>
                 </configuration>
-            </plugin>
-
-            <!-- Copiar scripts executáveis para target/ -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
-                <version>3.3.1</version>
-                <executions>
-                    <execution>
-                        <id>copy-launcher-scripts</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>copy-resources</goal>
-                        </goals>
-                        <configuration>
-                            <outputDirectory>${project.build.directory}</outputDirectory>
-                            <resources>
-                                <resource>
-                                    <directory>src/main/scripts</directory>
-                                    <filtering>true</filtering>
-                                    <includes>
-                                        <include>*.bat</include>
-                                        <include>*.sh</include>
-                                    </includes>
-                                </resource>
-                            </resources>
-                        </configuration>
-                    </execution>
-                </executions>
             </plugin>
 
             <!-- Assembly para distribuição -->
