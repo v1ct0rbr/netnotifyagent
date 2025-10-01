@@ -4,12 +4,21 @@ import br.gov.pb.der.netnotifyagent.utils.Functions;
 
 public class Message {
 
+    String title;
     String content;
     String level; // info, warning, error, html
     String type; // notification, alert
     String user; // usuário que criou a mensagem
     String createdAt;
     String updatedAt;
+
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
+    }
 
     public String getContent() {
         return content;
