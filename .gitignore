@@ -2,3 +2,4 @@ target
 resources/settings.properties
 src/main/installer/Output
 Output
+*.log
