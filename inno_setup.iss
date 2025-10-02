@@ -5,14 +5,17 @@
 [Setup]
 AppName={#AppName}
 AppVersion={#AppVersion}
-DefaultDirName={pf}\NetNotifyAgent
+; Use {pf64} para forçar Program Files (não Program Files (x86))
+DefaultDirName={pf64}\NetNotifyAgent
 DefaultGroupName={#AppName}
 OutputBaseFilename=NetNotifyAgent-Setup-{#AppVersion}
 Compression=lzma
 SolidCompression=yes
 PrivilegesRequired=admin
 WizardStyle=modern
-; Suporte a instalação silenciosa
+; Força arquitetura 64-bit
+ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64
 UsePreviousAppDir=yes
 
 
