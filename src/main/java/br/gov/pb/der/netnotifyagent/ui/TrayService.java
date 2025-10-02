@@ -2,27 +2,25 @@ package br.gov.pb.der.netnotifyagent.ui;
 
 import java.awt.AWTException;
 import java.awt.Image;
+import java.awt.MenuItem;
+import java.awt.PopupMenu;
 import java.awt.SystemTray;
 import java.awt.Toolkit;
 import java.awt.TrayIcon;
-import java.awt.PopupMenu;
-import java.awt.MenuItem;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.io.InputStream;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import br.gov.pb.der.netnotifyagent.service.RabbitmqService;
+import br.gov.pb.der.netnotifyagent.utils.Constants;
 import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.scene.control.TextArea;
 import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
-import br.gov.pb.der.netnotifyagent.utils.Constants;
-import java.util.Timer;
-import java.util.TimerTask;
-
-import br.gov.pb.der.netnotifyagent.service.RabbitmqService;
 
 public class TrayService {
 
@@ -50,31 +48,24 @@ public class TrayService {
     MenuItem aboutItem = new MenuItem("Sobre");
     MenuItem exitItem = new MenuItem("Sair");
 
-        aboutItem.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                try {
-                    String about = Constants.getAppInfo();
-                    showAboutWindow(about);
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                    trayIcon.displayMessage("NetNotify", "Não foi possível abrir Sobre", TrayIcon.MessageType.ERROR);
-                }
+        aboutItem.addActionListener((ActionEvent e) -> {
+            try {
+                String about = Constants.getAppInfo();
+                showAboutWindow(about);
+            } catch (Exception ex) {                
+                trayIcon.displayMessage("NetNotify", "Não foi possível abrir Sobre", TrayIcon.MessageType.ERROR);
             }
         });
 
-        exitItem.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                try {
-                    rabbitmqService.stop();
-                } catch (Exception ex) {
-                    // ignore
-                }
-                shutdown();
-                // encerra a JVM
-                System.exit(0);
+        exitItem.addActionListener((ActionEvent e) -> {
+            try {
+                rabbitmqService.stop();
+            } catch (Exception ex) {
+                // ignore
             }
+            shutdown();
+            // encerra a JVM
+            System.exit(0);
         });
 
     popup.add(aboutItem);
@@ -84,11 +75,8 @@ public class TrayService {
         trayIcon.setPopupMenu(popup);
 
         // clique padrão também mostra o resumo no console
-        trayIcon.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                System.out.println("Tray clicked.\n" + rabbitmqService.getSummary());
-            }
+        trayIcon.addActionListener((ActionEvent e) -> {
+            System.out.println("Tray clicked.\n" + rabbitmqService.getSummary());
         });
 
         tray.add(trayIcon);

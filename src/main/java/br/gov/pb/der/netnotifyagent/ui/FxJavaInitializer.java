@@ -33,8 +33,7 @@ public final class FxJavaInitializer {
                 // already initialized concurrently
                 initialized.set(true);
             } catch (Exception e) {
-                System.err.println("Failed to initialize JavaFX toolkit: " + e.getMessage());
-                e.printStackTrace();
+                System.err.println("Failed to initialize JavaFX toolkit: " + e.getMessage());                
             }
         }
     }

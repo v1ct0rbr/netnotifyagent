@@ -1,7 +1,10 @@
 package br.gov.pb.der.netnotifyagent;
 
+import java.awt.HeadlessException;
 import java.io.File;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
@@ -13,10 +16,10 @@ import java.util.List;
  */
 public class NetnotifyagentLauncher {
     
-    private static final String[] REQUIRED_JAVAFX_MODULES = {
+/*     private static final String[] REQUIRED_JAVAFX_MODULES = {
         "javafx.controls", "javafx.web", "javafx.base", "javafx.graphics"
     };
-    
+     */
     public static void main(String[] args) {
         System.out.println("=== NetNotify Agent Launcher ===");
         
@@ -41,8 +44,7 @@ public class NetnotifyagentLauncher {
     }
     
     private static void detectExecutionContext() {
-        String command = System.getProperty("sun.java.command", "");
-        String classpath = System.getProperty("java.class.path", "");
+        String command = System.getProperty("sun.java.command", "");        
         
         System.out.println("Comando: " + command);
         System.out.println("Contexto de execução detectado: " + 
@@ -163,7 +165,7 @@ public class NetnotifyagentLauncher {
                 addURLMethod.invoke(systemClassLoader, jarFile.toURI().toURL());
                 System.out.println("Adicionado ao classpath: " + jarFile.getName());
                 addedCount++;
-            } catch (Exception e) {
+            } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException | MalformedURLException e) {
                 System.out.println("Aviso: Não foi possível adicionar " + jarFile.getName() + 
                     " ao classpath: " + e.getMessage());
             }
@@ -188,7 +190,7 @@ public class NetnotifyagentLauncher {
             boolean isInitialized = true;
             try {
                 isImplicitExitMethod.invoke(null);
-            } catch (Exception e) {
+            } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
                 isInitialized = false;
             }
             
@@ -209,7 +211,7 @@ public class NetnotifyagentLauncher {
             
             System.out.println("JavaFX Platform configurado com sucesso");
             
-        } catch (Exception e) {
+        } catch (ClassNotFoundException | IllegalAccessException | IllegalArgumentException | InterruptedException | NoSuchMethodException | SecurityException | InvocationTargetException e) {
             throw new RuntimeException("Falha ao inicializar JavaFX Platform", e);
         }
     }
@@ -218,17 +220,20 @@ public class NetnotifyagentLauncher {
         System.err.println("=== ERRO CRÍTICO ===");
         System.err.println("Falha ao inicializar NetNotify Agent");
         System.err.println("Erro: " + e.getMessage());
-        e.printStackTrace();
+        
         
         // Tentar mostrar dialog de erro
         try {
             showErrorDialog("Erro ao Inicializar NetNotify Agent", 
-                "Não foi possível inicializar a aplicação.\n\n" +
-                "Possíveis causas:\n" +
-                "• Java 11+ não está instalado\n" +
-                "• Dependências JavaFX não encontradas na pasta 'libs'\n" +
-                "• Problema de permissões\n\n" +
-                "Detalhes técnicos:\n" + e.getMessage());
+                """
+                N\u00e3o foi poss\u00edvel inicializar a aplica\u00e7\u00e3o.                
+                Poss\u00edveis causas:
+                \u2022 Java 11+ n\u00e3o est\u00e1 instalado
+                \u2022 Depend\u00eancias JavaFX n\u00e3o encontradas na pasta 'libs'
+                \u2022 Problema de permiss\u00f5es
+                
+                Detalhes t\u00e9cnicos:
+                """ + e.getMessage());
         } catch (Exception dialogError) {
             System.err.println("Não foi possível mostrar dialog de erro: " + dialogError.getMessage());
         }
@@ -241,7 +246,7 @@ public class NetnotifyagentLauncher {
             // Tentar usar JOptionPane como fallback
             javax.swing.JOptionPane.showMessageDialog(null, message, title, 
                 javax.swing.JOptionPane.ERROR_MESSAGE);
-        } catch (Exception e) {
+        } catch (HeadlessException e) {
             // Se não conseguir mostrar dialog, pelo menos imprimir
             System.err.println("ERRO: " + title);
             System.err.println(message);

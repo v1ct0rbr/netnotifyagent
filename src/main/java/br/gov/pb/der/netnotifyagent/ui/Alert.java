@@ -1,6 +1,7 @@
 package br.gov.pb.der.netnotifyagent.ui;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -29,7 +30,8 @@ import javafx.stage.Stage;
 
 public class Alert {
 
-    private static Alert instance;
+    // 'volatile' ensures visibility of changes to 'instance' across threads for correct double-checked locking
+    private static volatile Alert instance;
     private final ObjectMapper objectMapper;
     // indicador para inicializar o toolkit JavaFX apenas uma vez
     private static final AtomicBoolean fxInitialized = new AtomicBoolean(false);
@@ -50,21 +52,22 @@ public class Alert {
                 br.gov.pb.der.netnotifyagent.ui.FxJavaInitializer.init();
                 fxInitialized.set(true);
             } catch (Exception e) {
-                System.err.println("Failed to initialize JavaFX via FxJavaInitializer: " + e.getMessage());
-                e.printStackTrace();
+                System.err.println("Failed to initialize JavaFX via FxJavaInitializer: " + e.getMessage());                
             }
         }
     }
 
     public static Alert getInstance() {
-        if (instance == null) {
+        Alert inst = Alert.instance;
+        if (inst == null) {
             synchronized (Alert.class) {
-                if (instance == null) {
-                    instance = new Alert();
+                inst = Alert.instance;
+                if (inst == null) {
+                    Alert.instance = inst = new Alert();
                 }
             }
         }
-        return instance;
+        return inst;
     }
 
     public void showInfo(String message) {
@@ -88,7 +91,7 @@ public class Alert {
                 stage.show();
                 stage.toFront();
             });
-        } catch (Exception e) {
+        } catch (JsonProcessingException e) {
             // Se não conseguir fazer parse do JSON, mostra a mensagem original
             ensureFxInitialized();
             Platform.runLater(() -> {
@@ -207,8 +210,7 @@ public class Alert {
                     stage.requestFocus();
 
                 } catch (Exception ex) {
-                    System.err.println("Erro ao exibir conteúdo em JavaFX: " + ex.getMessage());
-                    ex.printStackTrace();
+                    System.err.println("Erro ao exibir conteúdo em JavaFX: " + ex.getMessage());                    
                 }
             });
         } catch (JsonProcessingException e) {
@@ -281,7 +283,7 @@ public class Alert {
                     String replacement = originalTag.replace(urlStr, dataUri);
                     m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
                 }
-            } catch (Exception ex) {
+            } catch (IOException ex) {
                 // não conseguiu baixar, deixa a tag original
                 m.appendReplacement(sb, Matcher.quoteReplacement(m.group(0)));
             }
@@ -295,6 +297,8 @@ public class Alert {
 
     public String addHtmlTagsToContent(String content) {
         if (content == null || content.isEmpty()) return content;
+        // Inline remote images before wrapping in HTML tags
+        String processedContent = inlineRemoteImages(content);
         StringBuilder sb = new StringBuilder();
         sb.append("<html><head><meta charset=\"UTF-8\">");
         sb.append("<link href=\"https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap\" rel=\"stylesheet\">");
@@ -303,7 +307,7 @@ public class Alert {
         sb.append("img { max-width: 100%; height: auto; }");
         sb.append("</style>");
         sb.append("</head><body>");
-        sb.append(content);
+        sb.append(processedContent);
         sb.append("</body></html>");
         return sb.toString();
     }

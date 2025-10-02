@@ -55,8 +55,7 @@ public class Netnotifyagent {
             }
 
         } catch (Exception e) {
-            System.err.println("Erro crítico na aplicação: " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("Erro crítico na aplicação: " + e.getMessage());            
             System.exit(1);
         }
     }

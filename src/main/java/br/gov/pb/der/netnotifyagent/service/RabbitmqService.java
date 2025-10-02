@@ -2,6 +2,7 @@ package br.gov.pb.der.netnotifyagent.service;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 import java.util.UUID;
@@ -95,14 +96,14 @@ public class RabbitmqService {
         String hostname = "unknown-host";
         try {
             hostname = InetAddress.getLocalHost().getHostName().replaceAll("[^a-zA-Z0-9\\-]", "_");
-        } catch (Exception ignored) {
+        } catch (UnknownHostException ignored) {
         }
 
         String instanceQueue;
         if (queueName != null && !queueName.trim().isEmpty()) {
             instanceQueue = queueName + "." + UUID.randomUUID().toString();
         } else {
-            instanceQueue = "netnotify." + hostname + "." + UUID.randomUUID().toString();
+            instanceQueue = "netnotify." + hostname;
         }
 
         // Parâmetros: durable=false, exclusive=false, autoDelete=true
@@ -130,7 +131,7 @@ public class RabbitmqService {
                 String rk = (routingKey != null) ? routingKey : "";
                 channel.queueBind(instanceQueue, ex, rk);
                 System.out.println("Fila de instancia vinculada ao exchange: " + ex + " (rk='" + rk + "')");
-            } catch (Exception e) {
+            } catch (IOException e) {
                 System.err.println("Erro ao declarar/vincular exchange: " + e.getMessage());
                 e.printStackTrace(System.err);
                 // Não interrompe o consumo da fila local — apenas registra o erro
@@ -185,7 +186,7 @@ public class RabbitmqService {
                     System.err.println("Timeout na conexão: " + e.getMessage());
                 }
 
-            } catch (Exception e) {
+            } catch (InterruptedException e) {
                 lastError = e.getMessage();
                 status = "Disconnected";
                 System.err.println("Erro geral na conexão com RabbitMQ: " + e.getMessage());
@@ -193,12 +194,15 @@ public class RabbitmqService {
 
             if (!shouldStop) {
                 System.out.println("Tentando reconectar em " + (RECONNECT_DELAY_MS / 1000) + " segundos...");
-                try {
-                    Thread.sleep(RECONNECT_DELAY_MS);
-                } catch (InterruptedException e) {
-                    System.out.println("Aplicação interrompida.");
-                    Thread.currentThread().interrupt();
-                    break;
+                Object reconnectMonitor = new Object();
+                synchronized (reconnectMonitor) {
+                    try {
+                        reconnectMonitor.wait(RECONNECT_DELAY_MS);
+                    } catch (InterruptedException e) {
+                        System.out.println("Aplicação interrompida.");
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
         }
