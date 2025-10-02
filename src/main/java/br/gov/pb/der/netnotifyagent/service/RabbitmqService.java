@@ -1,10 +1,13 @@
 package br.gov.pb.der.netnotifyagent.service;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Properties;
+import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 
+import com.rabbitmq.client.BuiltinExchangeType;
 import com.rabbitmq.client.CancelCallback;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
@@ -47,8 +50,7 @@ public class RabbitmqService {
             this.username = settings.getProperty("rabbitmq.username");
             this.password = settings.getProperty("rabbitmq.password");
             this.exchangeName = settings.getProperty("rabbitmq.exchange");
-            this.queueName = settings.getProperty("rabbitmq.queue");
-            this.routingKey = settings.getProperty("rabbitmq.routingkey", "");
+            this.routingKey = settings.getProperty("rabbitmq.routingkey");
             this.virtualHost = settings.getProperty("rabbitmq.virtualhost", "/");
             this.port = Integer.parseInt(settings.getProperty("rabbitmq.port", "5672"));
         } catch (IOException e) {
@@ -63,6 +65,7 @@ public class RabbitmqService {
         factory.setPassword(this.password);
         factory.setVirtualHost(this.virtualHost);
         factory.setPort(this.port);
+        
         factory.setRequestedHeartbeat(HEARTBEAT_INTERVAL_MS / 1000);
         factory.setAutomaticRecoveryEnabled(true);
         factory.setNetworkRecoveryInterval(RECONNECT_DELAY_MS);
@@ -88,30 +91,59 @@ public class RabbitmqService {
     }
 
     private void setupQueueAndExchangeConsumer(Channel channel) throws IOException {
-        // Verifica se a fila existe (sem criar)
+        // cria uma fila por instância com nome único (prefixo configurado ou netnotify)
+        String hostname = "unknown-host";
         try {
-            channel.queueDeclarePassive(queueName);
-            System.out.println("Conectado à fila existente: " + queueName);
-        } catch (IOException e) {
-            throw new IOException("Fila '" + queueName + "' não existe: " + e.getMessage());
+            hostname = InetAddress.getLocalHost().getHostName().replaceAll("[^a-zA-Z0-9\\-]", "_");
+        } catch (Exception ignored) {
         }
 
-        // Verifica se o exchange existe (opcional - pode não existir se for default)
-        if (exchangeName != null && !exchangeName.isEmpty() && !exchangeName.equals("")) {
+        String instanceQueue;
+        if (queueName != null && !queueName.trim().isEmpty()) {
+            instanceQueue = queueName + "." + UUID.randomUUID().toString();
+        } else {
+            instanceQueue = "netnotify." + hostname + "." + UUID.randomUUID().toString();
+        }
+
+        // Parâmetros: durable=false, exclusive=false, autoDelete=true
+        // autoDelete=true remove a fila quando o consumidor desconectar (evita filas órfãs)
+        channel.queueDeclare(instanceQueue, false, false, true, null);
+        System.out.println("Criada/using fila de instancia: " + instanceQueue);
+
+        // Se houver exchange configurado, declara (fanout por padrão) e vincula a fila
+        if (exchangeName != null && !exchangeName.trim().isEmpty()) {
+            String ex = exchangeName.trim();
+            System.out.println("Tentando declarar/vincular exchange: '" + ex + "' (routingKey='" + (routingKey==null?"":routingKey) + "')");
             try {
-                channel.exchangeDeclarePassive(exchangeName);
-                System.out.println("Exchange encontrado: " + exchangeName);
+                // Primeiro tenta verificar se o exchange já existe (passive) para ter melhor diagnóstico
+                try {
+                    channel.exchangeDeclarePassive(ex);
+                    System.out.println("Exchange existe (passive): " + ex);
+                } catch (IOException passiveEx) {
+                    // Se exchange não existir ou houver mismatch, tenta declarar (fallback)
+                    System.out.println("Exchange não encontrado/passive falhou - tentando declarar: " + ex);
+                    channel.exchangeDeclare(ex, BuiltinExchangeType.FANOUT, true);
+                    System.out.println("Exchange declarado: " + ex);
+                }
 
-                // Vincula a fila ao exchange com routing key
-                channel.queueBind(queueName, exchangeName, routingKey);
-                System.out.println("Fila vinculada ao exchange com routing key: " + routingKey);
-            } catch (IOException e) {
-                System.out.println("Exchange não encontrado ou erro na vinculação: " + e.getMessage());
+                // bind sem routing key para fanout (usa routingKey se informado)
+                String rk = (routingKey != null) ? routingKey : "";
+                channel.queueBind(instanceQueue, ex, rk);
+                System.out.println("Fila de instancia vinculada ao exchange: " + ex + " (rk='" + rk + "')");
+            } catch (Exception e) {
+                System.err.println("Erro ao declarar/vincular exchange: " + e.getMessage());
+                e.printStackTrace(System.err);
+                // Não interrompe o consumo da fila local — apenas registra o erro
             }
+        } else {
+            System.out.println("Nenhum exchange configurado; consumindo diretamente da fila de instancia.");
         }
 
-        // Inicia o consumo da fila existente
-        channel.basicConsume(queueName, true, createDeliverCallback(), createCancelCallback());
+        // Inicia o consumo na fila de instancia
+        channel.basicConsume(instanceQueue, true, createDeliverCallback(), createCancelCallback());
+
+        // Atualiza campo para relatório (opcional)
+        this.queueName = instanceQueue;
     }
 
     private void waitForConnection() throws InterruptedException {
@@ -131,8 +163,7 @@ public class RabbitmqService {
                 status = "Connecting to " + host + ":" + port;
                 System.out.println(status + "...");
 
-                try (Connection connection = factory.newConnection();
-                        Channel channel = connection.createChannel()) {
+                try (Connection connection = factory.newConnection(); Channel channel = connection.createChannel()) {
 
                     setupQueueAndExchangeConsumer(channel);
                     status = "Connected to queue: " + queueName;

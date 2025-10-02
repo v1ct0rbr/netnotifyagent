@@ -3,6 +3,13 @@
     "configurations": [
         {
             "type": "java",
+            "name": "NetnotifyagentLauncher",
+            "request": "launch",
+            "mainClass": "br.gov.pb.der.netnotifyagent.NetnotifyagentLauncher",
+            "projectName": "netnotifyagent"
+        },
+        {
+            "type": "java",
             "name": "Run Netnotifyagent (JavaFX)",
             "request": "launch",
             "mainClass": "br.gov.pb.der.netnotifyagent.Netnotifyagent",

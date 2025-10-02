@@ -134,56 +134,78 @@ public class Alert {
     public void showHtml(String htmlContent) {
         try {
             Message message = objectMapper.readValue(htmlContent, Message.class);
-            System.out.println("Level: " + message.getLevel());
-            System.out.println("Content: " + message.getContent());
             // Inicializa JavaFX toolkit se necessário
             ensureFxInitialized();
 
-            // WebView consegue carregar imagens remotas nativamente; não é necessário inline
-            final String contentToLoad = message.getContent();
+            final String contentToLoad = addHtmlTagsToContent(message.getContent());
 
-            // Mostra a janela de forma não-bloqueante para não travar o consumidor de mensagens
             Platform.runLater(() -> {
                 try {
                     Stage stage = new Stage();
                     stage.initModality(Modality.NONE);
                     stage.setAlwaysOnTop(true);
                     stage.setResizable(true);
-                    
-                    // Força posição específica na tela
-                    stage.setX(100);
-                    stage.setY(100);
-                    stage.setWidth(800);
-                    stage.setHeight(500);
-                    
+
                     Image icon = loadFxIcon();
                     if (icon != null) stage.getIcons().add(icon);
                     stage.setTitle(message.getType() != null ? message.getType() : "Mensagem");
-                    System.out.println("Creating HTML window: " + stage.getTitle());
 
                     WebView webView = new WebView();
-                    webView.setPrefSize(800, 500);
                     WebEngine engine = webView.getEngine();
+
+                    // limites máximos (90% da area visivel)
+                    double maxW = javafx.stage.Screen.getPrimary().getVisualBounds().getWidth() * 0.9;
+                    double maxH = javafx.stage.Screen.getPrimary().getVisualBounds().getHeight() * 0.9;
+
+                    // carga do conteúdo
                     engine.loadContent(contentToLoad, "text/html");
+
+                    // quando o documento terminar de carregar, obter tamanho e ajustar janela
+                    engine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
+                        try {
+                            if (newState == javafx.concurrent.Worker.State.SUCCEEDED) {
+                                // executa JS para obter dimensões do conteúdo
+                                Object wObj = engine.executeScript("Math.max(document.documentElement.scrollWidth, document.body.scrollWidth)");
+                                Object hObj = engine.executeScript("Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)");
+
+                                double contentW = (wObj instanceof Number) ? ((Number) wObj).doubleValue() : 800;
+                                double contentH = (hObj instanceof Number) ? ((Number) hObj).doubleValue() : 600;
+
+                                // aplicar padding e limites
+                                double paddingW = 20;
+                                double paddingH = 80; // inclui barras/titulo
+                                double finalW = Math.min(contentW + paddingW, maxW);
+                                double finalH = Math.min(contentH + paddingH, maxH);
+
+                                // ajustar WebView e Stage
+                                webView.setPrefWidth(finalW);
+                                webView.setPrefHeight(finalH);
+                                stage.setWidth(finalW);
+                                stage.setHeight(finalH);
+
+                                // opcional: garantir que a janela não fique menor que um mínimo
+                                stage.setMinWidth(300);
+                                stage.setMinHeight(150);
+
+                                // centralizar/visibilizar
+                                stage.centerOnScreen();
+                                stage.toFront();
+                            }
+                        } catch (Exception ex) {
+                            System.err.println("Erro ao ajustar tamanho dinamico: " + ex.getMessage());
+                        }
+                    });
 
                     VBox root = new VBox(webView);
                     root.setPadding(new Insets(5));
                     Scene scene = new Scene(root);
                     stage.setScene(scene);
 
-                    // Força a exibição da janela
+                    // mostra imediatamente; será redimensionada no listener acima
                     stage.show();
                     stage.toFront();
                     stage.requestFocus();
-                    
-                    // Adiciona um delay para garantir que a janela seja renderizada
-                    Platform.runLater(() -> {
-                        stage.toFront();
-                        stage.setIconified(false);
-                        System.out.println("Window forced to front. Position: " + stage.getX() + "," + stage.getY() + " Size: " + stage.getWidth() + "x" + stage.getHeight());
-                    });
-                    
-                    System.out.println("Window should be visible now");
+
                 } catch (Exception ex) {
                     System.err.println("Erro ao exibir conteúdo em JavaFX: " + ex.getMessage());
                     ex.printStackTrace();
@@ -265,6 +287,24 @@ public class Alert {
             }
         }
         m.appendTail(sb);
+        return sb.toString();
+    }
+
+    // Adiciona tags HTML básicas se não existirem
+    // Usar font roboto ou similar para melhor compatibilidade
+
+    public String addHtmlTagsToContent(String content) {
+        if (content == null || content.isEmpty()) return content;
+        StringBuilder sb = new StringBuilder();
+        sb.append("<html><head><meta charset=\"UTF-8\">");
+        sb.append("<link href=\"https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap\" rel=\"stylesheet\">");
+        sb.append("<style>");
+        sb.append("body { font-family: Arial, sans-serif; margin: 10px; }");
+        sb.append("img { max-width: 100%; height: auto; }");
+        sb.append("</style>");
+        sb.append("</head><body>");
+        sb.append(content);
+        sb.append("</body></html>");
         return sb.toString();
     }
 }
