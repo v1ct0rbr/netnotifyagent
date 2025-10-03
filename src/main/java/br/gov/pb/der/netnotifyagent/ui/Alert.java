@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import br.gov.pb.der.netnotifyagent.dto.Message;
 import br.gov.pb.der.netnotifyagent.utils.Constants;
+import br.gov.pb.der.netnotifyagent.utils.Functions;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
@@ -44,15 +45,19 @@ public class Alert {
     }
 
     private void ensureFxInitialized() {
-        if (fxInitialized.get()) return;
+        if (fxInitialized.get()) {
+            return;
+        }
         synchronized (fxInitialized) {
-            if (fxInitialized.get()) return;
+            if (fxInitialized.get()) {
+                return;
+            }
             try {
                 // Use centralized initializer
                 br.gov.pb.der.netnotifyagent.ui.FxJavaInitializer.init();
                 fxInitialized.set(true);
             } catch (Exception e) {
-                System.err.println("Failed to initialize JavaFX via FxJavaInitializer: " + e.getMessage());                
+                System.err.println("Failed to initialize JavaFX via FxJavaInitializer: " + e.getMessage());
             }
         }
     }
@@ -79,7 +84,9 @@ public class Alert {
                 stage.initModality(Modality.NONE);
                 stage.setAlwaysOnTop(true);
                 Image icon = loadFxIcon();
-                if (icon != null) stage.getIcons().add(icon);
+                if (icon != null) {
+                    stage.getIcons().add(icon);
+                }
                 stage.setTitle("Alerta");
                 Text txt = new Text(msg.getContent());
                 txt.wrappingWidthProperty().set(600);
@@ -98,7 +105,9 @@ public class Alert {
                 Stage stage = new Stage();
                 stage.initModality(Modality.APPLICATION_MODAL);
                 Image icon = loadFxIcon();
-                if (icon != null) stage.getIcons().add(icon);
+                if (icon != null) {
+                    stage.getIcons().add(icon);
+                }
                 stage.setTitle("Alerta");
                 Text txt = new Text(message);
                 txt.wrappingWidthProperty().set(600);
@@ -120,7 +129,9 @@ public class Alert {
             stage.initModality(Modality.NONE);
             stage.setAlwaysOnTop(true);
             Image icon = loadFxIcon();
-            if (icon != null) stage.getIcons().add(icon);
+            if (icon != null) {
+                stage.getIcons().add(icon);
+            }
             stage.setTitle("Erro");
             Text txt = new Text(message);
             txt.wrappingWidthProperty().set(600);
@@ -137,10 +148,12 @@ public class Alert {
     public void showHtml(String htmlContent) {
         try {
             Message message = objectMapper.readValue(htmlContent, Message.class);
+            System.out.println("Parsed message: " + message.getContent());
+            
             // Inicializa JavaFX toolkit se necessário
             ensureFxInitialized();
 
-            final String contentToLoad = addHtmlTagsToContent(message.getContent());
+            final String contentToLoad = addHtmlTagsToContent(Functions.unescapeServerHtml(message.getContent()));
 
             Platform.runLater(() -> {
                 try {
@@ -150,7 +163,9 @@ public class Alert {
                     stage.setResizable(true);
 
                     Image icon = loadFxIcon();
-                    if (icon != null) stage.getIcons().add(icon);
+                    if (icon != null) {
+                        stage.getIcons().add(icon);
+                    }
                     stage.setTitle(message.getType() != null ? message.getType() : "Mensagem");
 
                     WebView webView = new WebView();
@@ -210,7 +225,7 @@ public class Alert {
                     stage.requestFocus();
 
                 } catch (Exception ex) {
-                    System.err.println("Erro ao exibir conteúdo em JavaFX: " + ex.getMessage());                    
+                    System.err.println("Erro ao exibir conteúdo em JavaFX: " + ex.getMessage());
                 }
             });
         } catch (JsonProcessingException e) {
@@ -224,7 +239,9 @@ public class Alert {
                 stage.setResizable(true);
                 stage.centerOnScreen();
                 Image icon = loadFxIcon();
-                if (icon != null) stage.getIcons().add(icon);
+                if (icon != null) {
+                    stage.getIcons().add(icon);
+                }
                 stage.setTitle("Mensagem");
                 System.out.println("Creating fallback HTML window");
                 WebView webView = new WebView();
@@ -243,7 +260,9 @@ public class Alert {
 
     private Image loadFxIcon() {
         try (InputStream is = Alert.class.getResourceAsStream(Constants.ICON_48PX_PATH)) {
-            if (is == null) return null;
+            if (is == null) {
+                return null;
+            }
             return new Image(is);
         } catch (Exception e) {
             return null;
@@ -255,7 +274,9 @@ public class Alert {
      * Em caso de falha no download, mantém a tag original.
      */
     private String inlineRemoteImages(String html) {
-        if (html == null || html.isEmpty()) return html;
+        if (html == null || html.isEmpty()) {
+            return html;
+        }
         Pattern p = Pattern.compile("<img\\s+[^>]*src\\s*=\\s*\"(https?://[^\"\\s>]+)\"[^>]*>", Pattern.CASE_INSENSITIVE);
         Matcher m = p.matcher(html);
         StringBuffer sb = new StringBuffer();
@@ -276,7 +297,9 @@ public class Alert {
                     }
                     byte[] bytes = out.toByteArray();
                     String contentType = conn.getContentType();
-                    if (contentType == null) contentType = "image/png";
+                    if (contentType == null) {
+                        contentType = "image/png";
+                    }
                     String base64 = Base64.getEncoder().encodeToString(bytes);
                     String dataUri = "data:" + contentType + ";base64," + base64;
                     String originalTag = m.group(0);
@@ -294,9 +317,10 @@ public class Alert {
 
     // Adiciona tags HTML básicas se não existirem
     // Usar font roboto ou similar para melhor compatibilidade
-
     public String addHtmlTagsToContent(String content) {
-        if (content == null || content.isEmpty()) return content;
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
         // Inline remote images before wrapping in HTML tags
         String processedContent = inlineRemoteImages(content);
         StringBuilder sb = new StringBuilder();

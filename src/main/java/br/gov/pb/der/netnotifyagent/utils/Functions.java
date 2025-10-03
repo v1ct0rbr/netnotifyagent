@@ -29,4 +29,36 @@ public class Functions {
         return message;
     }
 
+    /*  const unescapeServerHtml = (raw: unknown): string => {
+        if (typeof raw !== 'string') return '';
+        let s = raw;
+        // common escaped sequences from JSON-encoded HTML
+        s = s.replace(/\\"/g, '"')
+             .replace(/\\'/g, "'")
+             .replace(/\\n/g, '\n')
+             .replace(/\\r/g, '\r')
+             .replace(/\\t/g, '\t')
+             .replace(/\\\//g, '/')
+             .replace(/\\\\/g, '\\')
+             .replace(/\u2028/g, '\\u2028')
+             .replace(/\u2029/g, '\\u2029');
+        return s;
+    }; */
+    public static String unescapeServerHtml(String encodedHtmlText) {
+        if (encodedHtmlText == null || encodedHtmlText.isEmpty()) {
+            return "";
+        }
+        String s = encodedHtmlText;
+        // common escaped sequences from JSON-encoded HTML
+        s = s.replace("\\\"", "\"")
+                .replace("\\'", "'")
+                .replace("\\n", "\n")
+                .replace("\\r", "\r")
+                .replace("\\t", "\t")
+                .replace("\\/", "/")
+                .replace("\\\\", "\\")
+                .replace("\u2028", "\\u2028")
+                .replace("\u2029", "\\u2029");
+        return s;
+    }
 }

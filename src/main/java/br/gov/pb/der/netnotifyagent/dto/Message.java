@@ -4,6 +4,7 @@ import br.gov.pb.der.netnotifyagent.utils.Functions;
 
 public class Message {
 
+    String id;
     String title;
     String content;
     String level; // info, warning, error, html
@@ -11,6 +12,14 @@ public class Message {
     String user; // usuário que criou a mensagem
     String createdAt;
     String updatedAt;
+
+    public String getId() {
+        return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
+    }
 
     public String getTitle() {
         return title;
@@ -70,5 +79,19 @@ public class Message {
 
     public Message stringJsonToMessage(String json) {
         return Functions.jsonToObject(json, Message.class);
+    }
+
+    @Override
+    public String toString() {
+        return "Message{" +
+                "id='" + id + '\'' +
+                "title='" + title + '\'' +
+                ", content='" + content + '\'' +
+                ", level='" + level + '\'' +
+                ", type='" + type + '\'' +
+                ", user='" + user + '\'' +
+                ", createdAt='" + createdAt + '\'' +
+                ", updatedAt='" + updatedAt + '\'' +
+                '}';
     }
 }
