@@ -16,7 +16,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import br.gov.pb.der.netnotifyagent.dto.Message;
 import br.gov.pb.der.netnotifyagent.utils.Constants;
-import br.gov.pb.der.netnotifyagent.utils.Functions;
+import br.gov.pb.der.netnotifyagent.utils.MessageUtils;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
@@ -31,7 +31,8 @@ import javafx.stage.Stage;
 
 public class Alert {
 
-    // 'volatile' ensures visibility of changes to 'instance' across threads for correct double-checked locking
+    // 'volatile' ensures visibility of changes to 'instance' across threads for
+    // correct double-checked locking
     private static volatile Alert instance;
     private final ObjectMapper objectMapper;
     // indicador para inicializar o toolkit JavaFX apenas uma vez
@@ -149,11 +150,11 @@ public class Alert {
         try {
             Message message = objectMapper.readValue(htmlContent, Message.class);
             System.out.println("Parsed message: " + message.getContent());
-            
+
             // Inicializa JavaFX toolkit se necessário
             ensureFxInitialized();
 
-            final String contentToLoad = addHtmlTagsToContent(Functions.unescapeServerHtml(message.getContent()));
+            final String contentToLoad = sanitizeHtml(addHtmlTagsToContent(message));
 
             Platform.runLater(() -> {
                 try {
@@ -166,14 +167,27 @@ public class Alert {
                     if (icon != null) {
                         stage.getIcons().add(icon);
                     }
-                    stage.setTitle(message.getType() != null ? message.getType() : "Mensagem");
+                    stage.setTitle(
+                            message.getType() != null ? MessageUtils.formatMessageType(message.getType()) : "Mensagem");
 
                     WebView webView = new WebView();
                     WebEngine engine = webView.getEngine();
 
+                    // Desativa JavaScript e menu de contexto para evitar scripts externos que criem
+                    // botões
+                    engine.setJavaScriptEnabled(false);
+                    webView.setContextMenuEnabled(false);
+
                     // limites máximos (90% da area visivel)
                     double maxW = javafx.stage.Screen.getPrimary().getVisualBounds().getWidth() * 0.9;
                     double maxH = javafx.stage.Screen.getPrimary().getVisualBounds().getHeight() * 0.9;
+
+                    // registra listener de erros de carga para fallback
+                    engine.getLoadWorker().exceptionProperty().addListener((obs, oldEx, newEx) -> {
+                        if (newEx != null) {
+                            System.err.println("WebEngine load error: " + newEx.getMessage());
+                        }
+                    });
 
                     // carga do conteúdo
                     engine.loadContent(contentToLoad, "text/html");
@@ -182,9 +196,12 @@ public class Alert {
                     engine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
                         try {
                             if (newState == javafx.concurrent.Worker.State.SUCCEEDED) {
-                                // executa JS para obter dimensões do conteúdo
-                                Object wObj = engine.executeScript("Math.max(document.documentElement.scrollWidth, document.body.scrollWidth)");
-                                Object hObj = engine.executeScript("Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)");
+                                // executa JS apenas para medir (JS está desativado, usar valores padrões
+                                // seguros)
+                                Object wObj = engine.executeScript(
+                                        "Math.max(document.documentElement.scrollWidth, document.body.scrollWidth)");
+                                Object hObj = engine.executeScript(
+                                        "Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)");
 
                                 double contentW = (wObj instanceof Number) ? ((Number) wObj).doubleValue() : 800;
                                 double contentH = (hObj instanceof Number) ? ((Number) hObj).doubleValue() : 600;
@@ -245,7 +262,9 @@ public class Alert {
                 stage.setTitle("Mensagem");
                 System.out.println("Creating fallback HTML window");
                 WebView webView = new WebView();
-                webView.getEngine().loadContent("<pre>" + htmlContent + "</pre>", "text/html");
+                webView.getEngine().setJavaScriptEnabled(false);
+                webView.setContextMenuEnabled(false);
+                webView.getEngine().loadContent("<pre>" + sanitizeHtml(htmlContent) + "</pre>", "text/html");
                 webView.setPrefSize(600, 200);
                 VBox root = new VBox(webView);
                 root.setPadding(new Insets(5));
@@ -277,7 +296,8 @@ public class Alert {
         if (html == null || html.isEmpty()) {
             return html;
         }
-        Pattern p = Pattern.compile("<img\\s+[^>]*src\\s*=\\s*\"(https?://[^\"\\s>]+)\"[^>]*>", Pattern.CASE_INSENSITIVE);
+        Pattern p = Pattern.compile("<img\\s+[^>]*src\\s*=\\s*\"(https?://[^\"\\s>]+)\"[^>]*>",
+                Pattern.CASE_INSENSITIVE);
         Matcher m = p.matcher(html);
         StringBuffer sb = new StringBuffer();
         while (m.find()) {
@@ -317,22 +337,54 @@ public class Alert {
 
     // Adiciona tags HTML básicas se não existirem
     // Usar font roboto ou similar para melhor compatibilidade
-    public String addHtmlTagsToContent(String content) {
-        if (content == null || content.isEmpty()) {
-            return content;
+    public String addHtmlTagsToContent(Message message) {
+        if (message == null || message.getContent() == null || message.getContent().isEmpty()) {
+            return message.getContent();
         }
         // Inline remote images before wrapping in HTML tags
-        String processedContent = inlineRemoteImages(content);
+        String processedContent = inlineRemoteImages(message.getContent());
         StringBuilder sb = new StringBuilder();
         sb.append("<html><head><meta charset=\"UTF-8\">");
-        sb.append("<link href=\"https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap\" rel=\"stylesheet\">");
+        sb.append(
+                "<link href=\"https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap\" rel=\"stylesheet\">");
         sb.append("<style>");
         sb.append("body { font-family: Arial, sans-serif; margin: 10px; }");
         sb.append("img { max-width: 100%; height: auto; }");
         sb.append("</style>");
         sb.append("</head><body>");
+        sb.append(MessageUtils.formatMessageLevel(message.getLevel(), message.getTitle()));
         sb.append(processedContent);
         sb.append("</body></html>");
         return sb.toString();
+    }
+
+    /**
+     * Remove scripts, iframes, meta-refresh e atributos de evento (onerror/onload
+     * etc.)
+     * para evitar que o conteúdo carregue recursos externos ou injete botões de
+     * recarga.
+     */
+    private String sanitizeHtml(String html) {
+        if (html == null)
+            return "";
+
+        // remove <script>...</script>
+        html = html.replaceAll("(?is)<script[^>]*>.*?</script>", "");
+
+        // remove <iframe>...</iframe> e tags embed/object
+        html = html.replaceAll("(?is)<iframe[^>]*>.*?</iframe>", "");
+        html = html.replaceAll("(?is)<embed[^>]*>", "");
+        html = html.replaceAll("(?is)<object[^>]*>.*?</object>", "");
+
+        // remove meta refresh
+        html = html.replaceAll("(?i)<meta[^>]+http-equiv\\s*=\\s*['\"]?refresh['\"]?[^>]*>", "");
+
+        // remove inline event handlers (onerror, onload, onclick, etc.)
+        html = html.replaceAll("(?i)on[a-z]+\\s*=\\s*(['\"]).*?\\1", "");
+
+        // remove javascript: URLs
+        html = html.replaceAll("(?i)href\\s*=\\s*(['\"])javascript:[^'\"]*\\1", "");
+
+        return html;
     }
 }
