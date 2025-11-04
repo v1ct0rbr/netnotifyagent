@@ -2,13 +2,18 @@ package br.gov.pb.der.netnotifyagent;
 
 import java.awt.HeadlessException;
 import java.io.File;
+import java.io.InputStream;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLClassLoader;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+
+import br.gov.pb.der.netnotifyagent.utils.AutoSetup;
 
 /**
  * Launcher inteligente que configura JavaFX automaticamente
@@ -24,6 +29,10 @@ public class NetnotifyagentLauncher {
         System.out.println("=== NetNotify Agent Launcher ===");
         
         try {
+            // Auto-configurar a aplicação no Windows (Scheduled Task para auto-iniciar)
+            // Isso é feito ANTES de qualquer inicialização do JavaFX
+            AutoSetup.ensureScheduledTaskAtLogon();
+            
             // Detectar contexto de execução
             detectExecutionContext();
             
@@ -57,15 +66,7 @@ public class NetnotifyagentLauncher {
     }
     
     private static void setupJavaFX() throws Exception {
-        // Verificar se JavaFX já está disponível
-        if (isJavaFXAvailable()) {
-            System.out.println("JavaFX já disponível no classpath");
-            return;
-        }
-        
-        System.out.println("JavaFX não encontrado - Configurando...");
-        
-        // Encontrar diretório libs
+        // Encontrar diretório libs PRIMEIRO
         File libsDir = findLibsDirectory();
         if (libsDir == null) {
             throw new RuntimeException("Diretório 'libs' não encontrado. " +
@@ -74,11 +75,20 @@ public class NetnotifyagentLauncher {
         
         System.out.println("Diretório libs encontrado: " + libsDir.getAbsolutePath());
         
+        // CRUCIAL: Extrair e carregar natives (.dll) ANTES de carregar classes JavaFX
+        System.out.println("Extraindo e carregando natives do JavaFX...");
+        extractAndLoadJavaFXNatives(libsDir);
+        
         // Configurar module-path
         setupModulePath(libsDir);
         
         // Adicionar JARs ao classpath dinamicamente
         addJavaFXToClasspath(libsDir);
+        
+        // Verificar se JavaFX já está disponível
+        if (isJavaFXAvailable()) {
+            System.out.println("JavaFX já disponível no classpath");
+        }
     }
     
     private static boolean isJavaFXAvailable() {
@@ -154,28 +164,92 @@ public class NetnotifyagentLauncher {
             throw new RuntimeException("Nenhum JAR encontrado no diretório libs");
         }
         
-        // Adicionar JARs ao classpath usando reflection
-        URLClassLoader systemClassLoader = (URLClassLoader) ClassLoader.getSystemClassLoader();
-        Method addURLMethod = URLClassLoader.class.getDeclaredMethod("addURL", URL.class);
-        addURLMethod.setAccessible(true);
-        
-        int addedCount = 0;
-        for (File jarFile : jarFiles) {
-            try {
-                addURLMethod.invoke(systemClassLoader, jarFile.toURI().toURL());
-                System.out.println("Adicionado ao classpath: " + jarFile.getName());
-                addedCount++;
-            } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException | MalformedURLException e) {
-                System.out.println("Aviso: Não foi possível adicionar " + jarFile.getName() + 
-                    " ao classpath: " + e.getMessage());
-            }
-        }
-        
-        System.out.println("Total de JARs adicionados ao classpath: " + addedCount);
+        // Em Java 17+, não podemos usar URLClassLoader.addURL() diretamente
+        // Os JARs já estão no classpath via Maven Manifest
+        // O importante é que os natives foram extraídos e adicionados ao java.library.path
+        System.out.println("JavaFX JARs estão no classpath via manifesto (Java 17+)");
+        System.out.println("Total de JARs em libs: " + jarFiles.length);
         
         // Verificar novamente se JavaFX está disponível
         if (!isJavaFXAvailable()) {
             throw new RuntimeException("JavaFX ainda não está disponível após configuração do classpath");
+        }
+    }
+    
+    /**
+     * Extrai os natives (.dll) dos JARs do JavaFX e adiciona o diretório ao java.library.path
+     * Isso é CRUCIAL para que o WebView encontre jfxwebkit.dll
+     */
+    private static void extractAndLoadJavaFXNatives(File libsDir) {
+        try {
+            // Criar diretório temporário para natives
+            File nativesDir = new File(System.getProperty("java.io.tmpdir"), 
+                "javafx-natives-" + System.currentTimeMillis());
+            nativesDir.mkdirs();
+            System.out.println("Diretório de natives: " + nativesDir.getAbsolutePath());
+            
+            // Procurar por arquivos .dll nos JARs do JavaFX
+            File[] javafxJars = libsDir.listFiles((dir, name) -> 
+                name.contains("javafx") && name.endsWith("-win.jar"));
+            
+            if (javafxJars == null || javafxJars.length == 0) {
+                System.out.println("Aviso: Nenhum JAR do JavaFX com classificador -win encontrado");
+                return;
+            }
+            
+            System.out.println("Processando " + javafxJars.length + " JARs do JavaFX...");
+            
+            for (File jarFile : javafxJars) {
+                System.out.println("Extraindo natives de: " + jarFile.getName());
+                try (JarFile jar = new JarFile(jarFile)) {
+                    Enumeration<JarEntry> entries = jar.entries();
+                    while (entries.hasMoreElements()) {
+                        JarEntry entry = entries.nextElement();
+                        if (entry.getName().endsWith(".dll") || entry.getName().endsWith(".so") || 
+                            entry.getName().endsWith(".dylib")) {
+                            String fileName = new File(entry.getName()).getName();
+                            File nativeFile = new File(nativesDir, fileName);
+                            
+                            // Extrair arquivo
+                            try (InputStream is = jar.getInputStream(entry)) {
+                                Files.copy(is, nativeFile.toPath(), 
+                                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                System.out.println("  Extraído: " + fileName);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    System.out.println("Aviso ao processar " + jarFile.getName() + ": " + e.getMessage());
+                }
+            }
+            
+            // Adicionar diretório de natives ao java.library.path
+            String currentLibPath = System.getProperty("java.library.path", "");
+            String newLibPath = nativesDir.getAbsolutePath();
+            if (!currentLibPath.isEmpty()) {
+                newLibPath = newLibPath + File.pathSeparator + currentLibPath;
+            }
+            System.setProperty("java.library.path", newLibPath);
+            System.out.println("java.library.path atualizado com: " + nativesDir.getAbsolutePath());
+            
+            // IMPORTANTE: Recarregar a lista de caminhos de biblioteca do ClassLoader
+            // Isso faz o JVM procurar nos novos caminhos
+            try {
+                Field field = ClassLoader.class.getDeclaredField("sys_paths");
+                field.setAccessible(true);
+                field.set(null, null);
+                System.out.println("sys_paths limpo - java.library.path recarregado");
+            } catch (NoSuchFieldException | IllegalAccessException e) {
+                System.out.println("Aviso: Não foi possível recarregar sys_paths (esperado em Java 17+): " + e.getClass().getSimpleName());
+                // Em Java 17+, isso pode não funcionar, mas os natives foram extraídos e o path foi definido
+                // O ClassLoader nativo vai procurar no novo path de qualquer forma
+            } catch (Exception e) {
+                System.out.println("Aviso: Erro inesperado ao recarregar sys_paths: " + e.getMessage());
+            }
+            
+        } catch (Exception e) {
+            System.out.println("Erro ao extrair natives do JavaFX: " + e.getMessage());
+            e.printStackTrace();
         }
     }
     

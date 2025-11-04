@@ -30,24 +30,15 @@ Source: "target\run.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.sh"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]
-Name: "installservice"; Description: "Instalar como serviço (requer privilégios)"; GroupDescription: "Opções adicionais:"; Flags: checkedonce
-Name: "createscheduledtask"; Description: "Criar Tarefa Agendada (inicia no logon do usuário)"; Flags: unchecked
 Name: "desktopicon"; Description: "Criar atalho na área de trabalho"; Flags: unchecked
 
 [Run]
-; Instalar como serviço (padrão em modo silencioso ou se selecionado)
-Filename: "{win}\system32\WindowsPowerShell\v1.0\powershell.exe"; \
-    Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\install-service.ps1"" -BaseDir ""{app}"""; \
-    StatusMsg: "Instalando como serviço..."; \
-    Flags: runhidden waituntilterminated; \
-    Check: WizardSilent or IsTaskSelected('installservice')
-
-; Criar scheduled task apenas se não for serviço
-Filename: "{win}\system32\WindowsPowerShell\v1.0\powershell.exe"; \
-    Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\create-scheduled-task.ps1"" -BaseDir ""{app}"""; \
-    StatusMsg: "Criando Scheduled Task (start at logon)..."; \
-    Flags: runhidden waituntilterminated; \
-    Check: not WizardSilent and IsTaskSelected('createscheduledtask') and not IsTaskSelected('installservice')
+; Executar a aplicação após a instalação para que o AutoSetup crie a Scheduled Task
+; (removido da seção [Icons] e adicionado aqui para garantir execução pós-instalação)
+Filename: "{app}\run.bat"; \
+    StatusMsg: "Iniciando aplicação para configurar auto-inicialização..."; \
+    Flags: nowait; \
+    WorkingDir: "{app}"
 
 [Icons]
 Name: "{group}\NetNotify Agent"; Filename: "{app}\run.bat"; IconFilename: "{app}\resources\images\icon.ico"

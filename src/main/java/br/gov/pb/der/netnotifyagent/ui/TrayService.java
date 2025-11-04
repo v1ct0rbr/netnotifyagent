@@ -45,14 +45,24 @@ public class TrayService {
         trayIcon.setImageAutoSize(true);
         // Menu de contexto do tray
         PopupMenu popup = new PopupMenu();
-    MenuItem aboutItem = new MenuItem("Sobre");
-    MenuItem exitItem = new MenuItem("Sair");
+        MenuItem filterItem = new MenuItem("Filtros de Mensagens");
+        MenuItem aboutItem = new MenuItem("Sobre");
+        MenuItem exitItem = new MenuItem("Sair");
+
+        filterItem.addActionListener((ActionEvent e) -> {
+            try {
+                ensureFxInitialized();
+                showFilterPreferencesWindow();
+            } catch (Exception ex) {
+                trayIcon.displayMessage("NetNotify", "Erro ao abrir filtros: " + ex.getMessage(), TrayIcon.MessageType.ERROR);
+            }
+        });
 
         aboutItem.addActionListener((ActionEvent e) -> {
             try {
                 String about = Constants.getAppInfo();
                 showAboutWindow(about);
-            } catch (Exception ex) {                
+            } catch (Exception ex) {
                 trayIcon.displayMessage("NetNotify", "Não foi possível abrir Sobre", TrayIcon.MessageType.ERROR);
             }
         });
@@ -68,8 +78,9 @@ public class TrayService {
             System.exit(0);
         });
 
-    popup.add(aboutItem);
-    popup.addSeparator();
+        popup.add(filterItem);
+        popup.add(aboutItem);
+        popup.addSeparator();
         popup.add(exitItem);
 
         trayIcon.setPopupMenu(popup);
@@ -125,9 +136,13 @@ public class TrayService {
     private static final AtomicBoolean fxInit = new AtomicBoolean(false);
 
     private void ensureFxInitialized() {
-        if (fxInit.get()) return;
+        if (fxInit.get()) {
+            return;
+        }
         synchronized (fxInit) {
-            if (fxInit.get()) return;
+            if (fxInit.get()) {
+                return;
+            }
             try {
                 br.gov.pb.der.netnotifyagent.ui.FxJavaInitializer.init();
                 fxInit.set(true);
@@ -145,7 +160,9 @@ public class TrayService {
             stage.setTitle("Sobre");
 
             javafx.scene.image.Image icon = loadFxIcon();
-            if (icon != null) stage.getIcons().add(icon);
+            if (icon != null) {
+                stage.getIcons().add(icon);
+            }
 
             TextArea ta = new TextArea(about);
             ta.setWrapText(true);
@@ -163,10 +180,19 @@ public class TrayService {
 
     private javafx.scene.image.Image loadFxIcon() {
         try (InputStream is = TrayService.class.getResourceAsStream(Constants.ICON_48PX_PATH)) {
-            if (is == null) return null;
+            if (is == null) {
+                return null;
+            }
             return new javafx.scene.image.Image(is);
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private void showFilterPreferencesWindow() {
+        Platform.runLater(() -> {
+            FilterPreferencesWindow window = new FilterPreferencesWindow();
+            window.show();
+        });
     }
 }

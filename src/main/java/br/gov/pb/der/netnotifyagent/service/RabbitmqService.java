@@ -18,6 +18,9 @@ import com.rabbitmq.client.ShutdownSignalException;
 
 import br.gov.pb.der.netnotifyagent.ui.Alert;
 import br.gov.pb.der.netnotifyagent.utils.Functions;
+import br.gov.pb.der.netnotifyagent.utils.FilterSettings;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class RabbitmqService {
 
@@ -78,11 +81,39 @@ public class RabbitmqService {
             try {
                 String message = new String(delivery.getBody(), StandardCharsets.UTF_8);
                 System.out.println("Mensagem recebida: " + message);
+
+                // Extrair nível da mensagem para verificar filtro
+                String level = extractLevelFromMessage(message);
+
+                // Verificar se a mensagem deve ser exibida baseado no filtro
+                if (!FilterSettings.shouldShowMessage(level)) {
+                    System.out.println("[RabbitmqService] Mensagem com nível '" + level + "' filtrada pelo usuário");
+                    return;
+                }
+
                 Alert.getInstance().showHtml(message);
             } catch (Exception e) {
                 System.err.println("Erro ao processar mensagem: " + e.getMessage());
             }
         };
+    }
+
+    /**
+     * Extrai o nível da mensagem JSON
+     * @param message JSON da mensagem
+     * @return String com o nível, ou null se não encontrado
+     */
+    private String extractLevelFromMessage(String message) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode jsonNode = mapper.readTree(message);
+            if (jsonNode.has("level")) {
+                return jsonNode.get("level").asText();
+            }
+        } catch (Exception e) {
+            System.out.println("[RabbitmqService] Aviso: não foi possível extrair nível da mensagem: " + e.getMessage());
+        }
+        return null;
     }
 
     private CancelCallback createCancelCallback() {
