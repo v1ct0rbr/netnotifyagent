@@ -155,7 +155,7 @@ public class FilterSettings {
             case "alto":
                 return isAltoEnabled();
             case "urgente":
-                return isUrgenteEnabled();
+                return true;
             default:
                 return true; // Mostrar níveis desconhecidos
         }

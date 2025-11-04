@@ -1,13 +1,16 @@
 package br.gov.pb.der.netnotifyagent.ui;
 
+import br.gov.pb.der.netnotifyagent.utils.FilterSettings;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
-import javafx.scene.control.*;
-import javafx.scene.layout.VBox;
+import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.Label;
+import javafx.scene.control.Separator;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
-import br.gov.pb.der.netnotifyagent.utils.FilterSettings;
 
 /**
  * Janela de preferências para configurar filtros de mensagens
@@ -66,7 +69,8 @@ public class FilterPreferencesWindow {
         root.getChildren().add(checkAlto);
 
         checkUrgente = new CheckBox("Mensagens com Nível Urgente");
-        checkUrgente.setSelected(FilterSettings.isUrgenteEnabled());
+        checkUrgente.setDisable(true);
+        checkUrgente.setSelected(true);
         checkUrgente.setStyle("-fx-font-size: 11; -fx-font-weight: bold;");
         root.getChildren().add(checkUrgente);
 
