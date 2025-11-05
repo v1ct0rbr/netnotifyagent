@@ -41,6 +41,13 @@ public class FilterSettings {
                     properties.load(fis);
                 }
                 System.out.println("[FilterSettings] Configurações carregadas de: " + SETTINGS_FILE);
+                // Forçar URGENTE como sempre ativo, mesmo que o arquivo esteja diferente
+                String urgenteProp = properties.getProperty(FILTER_URGENTE_KEY);
+                if (!"true".equalsIgnoreCase(urgenteProp)) {
+                    properties.setProperty(FILTER_URGENTE_KEY, "true");
+                    // Persistir correção no arquivo imediatamente
+                    saveSettings();
+                }
             } else {
                 System.out.println("[FilterSettings] Arquivo de configurações não encontrado, usando padrões");
                 // Criar propriedades padrão
@@ -70,6 +77,9 @@ public class FilterSettings {
             File settingsFile = new File(SETTINGS_FILE);
             settingsFile.getParentFile().mkdirs(); // Criar diretório se não existir
             
+            // Garantir que o nível URGENTE permaneça sempre ativo ao salvar
+            properties.setProperty(FILTER_URGENTE_KEY, "true");
+
             try (FileOutputStream fos = new FileOutputStream(settingsFile)) {
                 properties.store(fos, "NetNotify Agent - Configurações de Filtro de Mensagens");
                 System.out.println("[FilterSettings] Configurações salvas com sucesso");
@@ -104,7 +114,8 @@ public class FilterSettings {
      * Define se deve mostrar mensagens com nível "Urgente"
      */
     public static void setUrgenteEnabled(boolean enabled) {
-        properties.setProperty(FILTER_URGENTE_KEY, String.valueOf(enabled));
+        // Ignorar tentativa de desativar URGENTE - manter sempre true
+        properties.setProperty(FILTER_URGENTE_KEY, "true");
     }
 
     /**
@@ -132,7 +143,8 @@ public class FilterSettings {
      * Verifica se deve mostrar mensagens com nível "Urgente"
      */
     public static boolean isUrgenteEnabled() {
-        return Boolean.parseBoolean(properties.getProperty(FILTER_URGENTE_KEY, String.valueOf(DEFAULT_URGENTE)));
+        // URGENTE é sempre considerado ativo
+        return true;
     }
 
     /**

@@ -34,7 +34,7 @@ public class FilterPreferencesWindow {
     private void createWindow() {
         stage = new Stage();
         stage.setTitle("Filtros de Mensagens");
-        stage.setWidth(350);
+        stage.setWidth(450);
         stage.setHeight(350);
         stage.setResizable(false);
 
@@ -98,7 +98,7 @@ public class FilterPreferencesWindow {
         btnCancelar.setOnAction(e -> stage.close());
 
         Button btnResetarPadrao = new Button("Restaurar Padrão");
-        btnResetarPadrao.setPrefWidth(100);
+        btnResetarPadrao.setPrefWidth(150);
         btnResetarPadrao.setStyle("-fx-font-size: 11; -fx-padding: 8px;");
         btnResetarPadrao.setOnAction(e -> onResetDefault());
 

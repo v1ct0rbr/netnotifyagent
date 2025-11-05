@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import br.gov.pb.der.netnotifyagent.service.RabbitmqService;
 import br.gov.pb.der.netnotifyagent.utils.Constants;
+import br.gov.pb.der.netnotifyagent.utils.JavaRuntimeInfo;
 import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.scene.control.TextArea;
@@ -60,7 +61,10 @@ public class TrayService {
 
         aboutItem.addActionListener((ActionEvent e) -> {
             try {
+                String summary = JavaRuntimeInfo.getSummary();
                 String about = Constants.getAppInfo();
+                about += "\n\n" + summary;
+
                 showAboutWindow(about);
             } catch (Exception ex) {
                 trayIcon.displayMessage("NetNotify", "Não foi possível abrir Sobre", TrayIcon.MessageType.ERROR);
@@ -153,6 +157,7 @@ public class TrayService {
     }
 
     private void showAboutWindow(String about) {
+        String sumary = JavaRuntimeInfo.getSummary();
         ensureFxInitialized();
         Platform.runLater(() -> {
             Stage stage = new Stage();
