@@ -40,6 +40,7 @@ Name: "{commondesktop}\NetNotify Agent"; Filename: "{app}\run.bat"; Tasks: deskt
 var
 	PageRabbit: TInputQueryWizardPage;
 	PageJava: TInputQueryWizardPage;
+	PageAgent: TInputQueryWizardPage;
 
 procedure InitializeWizard;
 begin
@@ -70,6 +71,14 @@ begin
 	PageRabbit.Values[4] := 'netnotify';
 	PageRabbit.Values[5] := '/';
 
+	{ Página de entrada: Configurações do Agent }
+	PageAgent := CreateInputQueryPage(wpSelectDir,
+		'Configuração do Agent',
+		'Defina os parâmetros de identificação do Agent',
+		'Nome do departamento que este agent representa.');
+	PageAgent.Add('Nome do Departamento (agent.department.name):', False);
+	PageAgent.Values[0] := '';
+
 	{ Página de entrada: Configurações de Java (opcional) }
 	PageJava := CreateInputQueryPage(wpSelectDir,
 		'Configuração Java (Opcional)',
@@ -98,6 +107,14 @@ begin
 	SettingsContent := SettingsContent + 'rabbitmq.exchange=' + PageRabbit.Values[4] + CRLF;
 	SettingsContent := SettingsContent + 'rabbitmq.routingkey=' + CRLF;
 	SettingsContent := SettingsContent + 'rabbitmq.virtualhost=' + PageRabbit.Values[5] + CRLF;
+	SettingsContent := SettingsContent + CRLF;
+	SettingsContent := SettingsContent + '# ===== CONFIGURACOES DO AGENT =====' + CRLF;
+	
+	if PageAgent.Values[0] <> '' then
+		SettingsContent := SettingsContent + 'agent.department.name=' + PageAgent.Values[0] + CRLF
+	else
+		SettingsContent := SettingsContent + '# agent.department.name=' + CRLF;
+
 	SettingsContent := SettingsContent + CRLF;
 	SettingsContent := SettingsContent + '# ===== JAVA RUNTIME OPCIONAL =====' + CRLF;
 	SettingsContent := SettingsContent + '# Defina o caminho para a versao do Java a ser usada pela aplicacao.' + CRLF;

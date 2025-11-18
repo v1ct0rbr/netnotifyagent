@@ -8,7 +8,8 @@ import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 
-import com.rabbitmq.client.BuiltinExchangeType;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.CancelCallback;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
@@ -17,10 +18,8 @@ import com.rabbitmq.client.DeliverCallback;
 import com.rabbitmq.client.ShutdownSignalException;
 
 import br.gov.pb.der.netnotifyagent.ui.Alert;
-import br.gov.pb.der.netnotifyagent.utils.Functions;
 import br.gov.pb.der.netnotifyagent.utils.FilterSettings;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import br.gov.pb.der.netnotifyagent.utils.Functions;
 
 public class RabbitmqService {
 
@@ -33,13 +32,19 @@ public class RabbitmqService {
     private String username;
     private String password;
     private String exchangeName;
-    private String queueName;
-    private String routingKey;
     private String virtualHost;
     private int port;
+    
+    // NOVO: Informações do departamento (apenas NOME)
+    private String departmentName;
+    private String hostname;
+    
+    // Nomes das filas criadas
+    private String generalQueueName;
+    private String departmentQueueName;
+    
     private Properties settings;
     private volatile boolean shouldStop = false;
-    // status para exibir no tray
     private volatile String status = "Stopped";
     private volatile String lastError = "";
 
@@ -53,12 +58,29 @@ public class RabbitmqService {
             this.host = settings.getProperty("rabbitmq.host");
             this.username = settings.getProperty("rabbitmq.username");
             this.password = settings.getProperty("rabbitmq.password");
-            this.exchangeName = settings.getProperty("rabbitmq.exchange");
-            this.routingKey = settings.getProperty("rabbitmq.routingkey");
+            this.exchangeName = settings.getProperty("rabbitmq.exchange", "netnotify.topic");
             this.virtualHost = settings.getProperty("rabbitmq.virtualhost", "/");
             this.port = Integer.parseInt(settings.getProperty("rabbitmq.port", "5672"));
+            
+            // NOVO: Carrega APENAS o NOME do departamento
+            this.departmentName = settings.getProperty("agent.department.name", "unknown");
+            this.hostname = settings.getProperty("agent.hostname", getLocalHostname());
+            
+            System.out.println("✓ Configuração carregada:");
+            System.out.println("  - Host: " + host + ":" + port);
+            System.out.println("  - Departamento: " + departmentName);
+            System.out.println("  - Hostname: " + hostname);
+            
         } catch (IOException e) {
-            System.err.println("Erro ao carregar configurações: " + e.getMessage());
+            System.err.println("✗ Erro ao carregar configurações: " + e.getMessage());
+        }
+    }
+
+    private String getLocalHostname() {
+        try {
+            return InetAddress.getLocalHost().getHostName().replaceAll("[^a-zA-Z0-9\\-]", "_");
+        } catch (UnknownHostException e) {
+            return "agent-" + UUID.randomUUID().toString().substring(0, 8);
         }
     }
 
@@ -76,11 +98,11 @@ public class RabbitmqService {
         return factory;
     }
 
-    private DeliverCallback createDeliverCallback() {
+    private DeliverCallback createDeliverCallback(String queueType) {
         return (consumerTag, delivery) -> {
             try {
                 String message = new String(delivery.getBody(), StandardCharsets.UTF_8);
-                System.out.println("Mensagem recebida: " + message);
+                System.out.println("[" + queueType + "] Mensagem recebida: " + message);
 
                 // Extrair nível da mensagem para verificar filtro
                 String level = extractLevelFromMessage(message);
@@ -98,11 +120,6 @@ public class RabbitmqService {
         };
     }
 
-    /**
-     * Extrai o nível da mensagem JSON
-     * @param message JSON da mensagem
-     * @return String com o nível, ou null se não encontrado
-     */
     private String extractLevelFromMessage(String message) {
         try {
             ObjectMapper mapper = new ObjectMapper();
@@ -111,78 +128,71 @@ public class RabbitmqService {
                 return jsonNode.get("level").asText();
             }
         } catch (Exception e) {
-            System.out.println("[RabbitmqService] Aviso: não foi possível extrair nível da mensagem: " + e.getMessage());
+            System.out.println("[RabbitmqService] Aviso: não foi possível extrair nível: " + e.getMessage());
         }
         return null;
     }
 
-    private CancelCallback createCancelCallback() {
+    private CancelCallback createCancelCallback(String queueType) {
         return consumerTag -> {
-            System.out.println("Consumidor cancelado: " + consumerTag);
+            System.out.println("[" + queueType + "] Consumidor cancelado: " + consumerTag);
         };
     }
 
+    /**
+     * Configura 2 filas:
+     * 1. Fila Geral: recebe mensagens broadcast para TODOS
+     * 2. Fila Departamento: recebe mensagens específicas do departamento
+     */
     private void setupQueueAndExchangeConsumer(Channel channel) throws IOException {
-        // cria uma fila por instância com nome único (prefixo configurado ou netnotify)
-        String hostname = "unknown-host";
-        try {
-            hostname = InetAddress.getLocalHost().getHostName().replaceAll("[^a-zA-Z0-9\\-]", "_");
-        } catch (UnknownHostException ignored) {
-        }
+        
+        // ========== SETUP DO EXCHANGE ==========
+        channel.exchangeDeclare(exchangeName, "topic", true);
+        System.out.println("✓ Exchange declarado: " + exchangeName + " (tipo: topic)");
 
-        String instanceQueue;
-        if (queueName != null && !queueName.trim().isEmpty()) {
-            instanceQueue = queueName + "." + UUID.randomUUID().toString();
+        // ========== FILA 1: MENSAGENS GERAIS ==========
+        this.generalQueueName = "queue_general_" + hostname;
+        
+        channel.queueDeclare(generalQueueName, true, false, false, null);
+        System.out.println("✓ Fila Geral criada: " + generalQueueName);
+
+        // Bind para receber BROADCAST de TODOS
+        channel.queueBind(generalQueueName, exchangeName, "broadcast.*");
+        System.out.println("  → Padrão: broadcast.*");
+
+        // Inicia consumo da fila geral
+        channel.basicConsume(generalQueueName, true, 
+                createDeliverCallback("GERAL"), 
+                createCancelCallback("GERAL"));
+
+        // ========== FILA 2: MENSAGENS DO DEPARTAMENTO ==========
+        if (departmentName != null && !departmentName.isEmpty() && !departmentName.equals("unknown")) {
+            String deptNameFormatted = departmentName.toLowerCase().replace(" ", "_");
+            this.departmentQueueName = "queue_department_" + deptNameFormatted + "_" + hostname;
+            
+            channel.queueDeclare(departmentQueueName, true, false, false, null);
+            System.out.println("✓ Fila Departamento criada: " + departmentQueueName);
+
+            // Bind para receber mensagens ESPECÍFICAS do departamento
+            String deptRoutingPattern = "department." + deptNameFormatted;
+            channel.queueBind(departmentQueueName, exchangeName, deptRoutingPattern);
+            System.out.println("  → Padrão: " + deptRoutingPattern);
+
+            // Inicia consumo da fila de departamento
+            channel.basicConsume(departmentQueueName, true,
+                    createDeliverCallback("DEPARTAMENTO"),
+                    createCancelCallback("DEPARTAMENTO"));
         } else {
-            instanceQueue = "netnotify." + hostname;
+            System.out.println("⚠ AVISO: departmentName não configurado!");
+            System.out.println("  Agente receberá APENAS mensagens gerais (broadcast)");
         }
-
-        // Parâmetros: durable=false, exclusive=false, autoDelete=true
-        // autoDelete=true remove a fila quando o consumidor desconectar (evita filas órfãs)
-        channel.queueDeclare(instanceQueue, false, false, true, null);
-        System.out.println("Criada/using fila de instancia: " + instanceQueue);
-
-        // Se houver exchange configurado, declara (fanout por padrão) e vincula a fila
-        if (exchangeName != null && !exchangeName.trim().isEmpty()) {
-            String ex = exchangeName.trim();
-            System.out.println("Tentando declarar/vincular exchange: '" + ex + "' (routingKey='" + (routingKey==null?"":routingKey) + "')");
-            try {
-                // Primeiro tenta verificar se o exchange já existe (passive) para ter melhor diagnóstico
-                try {
-                    channel.exchangeDeclarePassive(ex);
-                    System.out.println("Exchange existe (passive): " + ex);
-                } catch (IOException passiveEx) {
-                    // Se exchange não existir ou houver mismatch, tenta declarar (fallback)
-                    System.out.println("Exchange não encontrado/passive falhou - tentando declarar: " + ex);
-                    channel.exchangeDeclare(ex, BuiltinExchangeType.FANOUT, true);
-                    System.out.println("Exchange declarado: " + ex);
-                }
-
-                // bind sem routing key para fanout (usa routingKey se informado)
-                String rk = (routingKey != null) ? routingKey : "";
-                channel.queueBind(instanceQueue, ex, rk);
-                System.out.println("Fila de instancia vinculada ao exchange: " + ex + " (rk='" + rk + "')");
-            } catch (IOException e) {
-                System.err.println("Erro ao declarar/vincular exchange: " + e.getMessage());
-                e.printStackTrace(System.err);
-                // Não interrompe o consumo da fila local — apenas registra o erro
-            }
-        } else {
-            System.out.println("Nenhum exchange configurado; consumindo diretamente da fila de instancia.");
-        }
-
-        // Inicia o consumo na fila de instancia
-        channel.basicConsume(instanceQueue, true, createDeliverCallback(), createCancelCallback());
-
-        // Atualiza campo para relatório (opcional)
-        this.queueName = instanceQueue;
     }
 
     private void waitForConnection() throws InterruptedException {
         Object monitor = new Object();
         synchronized (monitor) {
             while (!shouldStop) {
-                monitor.wait(1000); // Verifica a cada segundo se deve parar
+                monitor.wait(1000);
             }
         }
     }
@@ -193,61 +203,59 @@ public class RabbitmqService {
         while (!shouldStop) {
             try {
                 status = "Connecting to " + host + ":" + port;
-                System.out.println(status + "...");
+                System.out.println("→ " + status + "...");
 
-                try (Connection connection = factory.newConnection(); Channel channel = connection.createChannel()) {
+                try (Connection connection = factory.newConnection();
+                     Channel channel = connection.createChannel()) {
 
                     setupQueueAndExchangeConsumer(channel);
-                    status = "Connected to queue: " + queueName;
-                    System.out.println("Conectado! Aguardando mensagens da fila: " + queueName);
+                    status = "Connected (General: " + generalQueueName + 
+                             (departmentQueueName != null ? ", Dept: " + departmentQueueName : "") + ")";
+                    System.out.println("✓ Conectado! Aguardando mensagens...\n");
 
                     waitForConnection();
 
                 } catch (ShutdownSignalException e) {
                     lastError = "Shutdown: " + e.getMessage();
                     status = "Disconnected";
-                    System.err.println("Conexão fechada pelo servidor: " + e.getMessage());
+                    System.err.println("✗ Conexão fechada: " + e.getMessage());
                 } catch (IOException e) {
                     lastError = "IO: " + e.getMessage();
                     status = "Disconnected";
-                    System.err.println("Erro de I/O na conexão: " + e.getMessage());
+                    System.err.println("✗ Erro de I/O: " + e.getMessage());
                 } catch (TimeoutException e) {
                     lastError = "Timeout: " + e.getMessage();
                     status = "Disconnected";
-                    System.err.println("Timeout na conexão: " + e.getMessage());
+                    System.err.println("✗ Timeout: " + e.getMessage());
                 }
 
             } catch (InterruptedException e) {
                 lastError = e.getMessage();
                 status = "Disconnected";
-                System.err.println("Erro geral na conexão com RabbitMQ: " + e.getMessage());
+                System.err.println("✗ Erro na conexão: " + e.getMessage());
             }
 
             if (!shouldStop) {
-                System.out.println("Tentando reconectar em " + (RECONNECT_DELAY_MS / 1000) + " segundos...");
-                Object reconnectMonitor = new Object();
-                synchronized (reconnectMonitor) {
-                    try {
-                        reconnectMonitor.wait(RECONNECT_DELAY_MS);
-                    } catch (InterruptedException e) {
-                        System.out.println("Aplicação interrompida.");
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
+                System.out.println("→ Tentando reconectar em " + (RECONNECT_DELAY_MS / 1000) + "s...");
+                try {
+                    Thread.sleep(RECONNECT_DELAY_MS);
+                } catch (InterruptedException e) {
+                    System.out.println("Aplicação interrompida.");
+                    break;
                 }
             }
         }
 
         status = "Stopped";
-        System.out.println("Serviço RabbitMQ finalizado.");
+        System.out.println("✓ Serviço RabbitMQ finalizado.");
     }
 
     public void stop() {
         this.shouldStop = true;
-        System.out.println("Parando o serviço RabbitMQ...");
+        System.out.println("→ Parando o serviço RabbitMQ...");
     }
 
-    // getters para status
+    // ========== GETTERS ==========
     public String getStatus() {
         return status;
     }
@@ -258,47 +266,48 @@ public class RabbitmqService {
 
     public String getSummary() {
         StringBuilder sb = new StringBuilder();
-        sb.append("Host: ").append(host).append('\n');
-        sb.append("Port: ").append(port).append('\n');
-        sb.append("Queue: ").append(queueName).append('\n');
-        sb.append("Exchange: ").append(exchangeName != null ? exchangeName : "-").append('\n');
-        sb.append("Status: ").append(status);
-        if (lastError != null && !lastError.isEmpty()) {
-            sb.append("\nLast error: ").append(lastError);
+        sb.append("═══════════════════════════════════════════════════════\n");
+        sb.append("     AGENTE NETNOTIFY - RESUMO DE CONFIGURAÇÃO\n");
+        sb.append("═══════════════════════════════════════════════════════\n\n");
+        
+        sb.append("🔧 CONEXÃO RABBITMQ\n");
+        sb.append("  Host: ").append(host).append(":").append(port).append("\n");
+        sb.append("  Exchange: ").append(exchangeName).append(" (Topic)\n");
+        sb.append("  VirtualHost: ").append(virtualHost).append("\n\n");
+        
+        sb.append("🏢 INFORMAÇÕES DO AGENTE\n");
+        sb.append("  Departamento: ").append(departmentName).append("\n");
+        sb.append("  Hostname: ").append(hostname).append("\n\n");
+        
+        sb.append("📨 FILAS ATIVAS\n");
+        sb.append("  [GERAL] ").append(generalQueueName).append("\n");
+        sb.append("    └─ Routing: broadcast.*\n");
+        if (departmentQueueName != null) {
+            String deptFormatted = departmentName.toLowerCase().replace(" ", "_");
+            sb.append("  [DEPARTAMENTO] ").append(departmentQueueName).append("\n");
+            sb.append("    └─ Routing: department.").append(deptFormatted).append("\n");
         }
+        sb.append("\n");
+        
+        sb.append("📊 STATUS ATUAL\n");
+        sb.append("  Status: ").append(status).append("\n");
+        if (lastError != null && !lastError.isEmpty()) {
+            sb.append("  Último erro: ").append(lastError).append("\n");
+        }
+        sb.append("═══════════════════════════════════════════════════════\n");
+        
         return sb.toString();
     }
 
-    // Getters para compatibilidade
-    public String getHost() {
-        return host;
-    }
-
-    public String getUsername() {
-        return username;
-    }
-
-    public String getPassword() {
-        return password;
-    }
-
-    public String getExchangeName() {
-        return exchangeName;
-    }
-
-    public String getQueueName() {
-        return queueName;
-    }
-
-    public String getRoutingKey() {
-        return routingKey;
-    }
-
-    public String getVirtualHost() {
-        return virtualHost;
-    }
-
-    public int getPort() {
-        return port;
-    }
+    // Getters
+    public String getHost() { return host; }
+    public String getUsername() { return username; }
+    public String getPassword() { return password; }
+    public String getExchangeName() { return exchangeName; }
+    public String getVirtualHost() { return virtualHost; }
+    public int getPort() { return port; }
+    public String getDepartmentName() { return departmentName; }
+    public String getHostname() { return hostname; }
+    public String getGeneralQueueName() { return generalQueueName; }
+    public String getDepartmentQueueName() { return departmentQueueName; }
 }
