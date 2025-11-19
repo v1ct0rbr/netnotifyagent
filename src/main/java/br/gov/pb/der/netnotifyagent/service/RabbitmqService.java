@@ -95,6 +95,14 @@ public class RabbitmqService {
         factory.setRequestedHeartbeat(HEARTBEAT_INTERVAL_MS / 1000);
         factory.setAutomaticRecoveryEnabled(true);
         factory.setNetworkRecoveryInterval(RECONNECT_DELAY_MS);
+        
+        System.out.println("[DEBUG] ConnectionFactory configurada:");
+        System.out.println("  - Host: " + this.host);
+        System.out.println("  - Port: " + this.port);
+        System.out.println("  - VirtualHost: " + this.virtualHost);
+        System.out.println("  - Username: " + this.username);
+        System.out.println("  - Exchange: " + this.exchangeName);
+        
         return factory;
     }
 
@@ -147,8 +155,9 @@ public class RabbitmqService {
     private void setupQueueAndExchangeConsumer(Channel channel) throws IOException {
         
         // ========== SETUP DO EXCHANGE ==========
-        channel.exchangeDeclare(exchangeName, "topic", true);
-        System.out.println("✓ Exchange declarado: " + exchangeName + " (tipo: topic)");
+        // durable=false para matching com o exchange existente no servidor
+        channel.exchangeDeclare(exchangeName, "topic", false);
+        System.out.println("✓ Exchange declarado: " + exchangeName + " (tipo: topic, não-durável)");
 
         // ========== FILA 1: MENSAGENS GERAIS ==========
         this.generalQueueName = "queue_general_" + hostname;
@@ -219,14 +228,24 @@ public class RabbitmqService {
                     lastError = "Shutdown: " + e.getMessage();
                     status = "Disconnected";
                     System.err.println("✗ Conexão fechada: " + e.getMessage());
+                    if (e.getCause() != null) {
+                        System.err.println("  Causa: " + e.getCause().getMessage());
+                    }
                 } catch (IOException e) {
-                    lastError = "IO: " + e.getMessage();
+                    lastError = "IO: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
                     status = "Disconnected";
                     System.err.println("✗ Erro de I/O: " + e.getMessage());
+                    System.err.println("  Tipo: " + e.getClass().getName());
+                    if (e.getCause() != null) {
+                        System.err.println("  Causa: " + e.getCause().getMessage());
+                    }
                 } catch (TimeoutException e) {
                     lastError = "Timeout: " + e.getMessage();
                     status = "Disconnected";
                     System.err.println("✗ Timeout: " + e.getMessage());
+                    if (e.getCause() != null) {
+                        System.err.println("  Causa: " + e.getCause().getMessage());
+                    }
                 }
 
             } catch (InterruptedException e) {
@@ -270,16 +289,16 @@ public class RabbitmqService {
         sb.append("     AGENTE NETNOTIFY - RESUMO DE CONFIGURAÇÃO\n");
         sb.append("═══════════════════════════════════════════════════════\n\n");
         
-        sb.append("🔧 CONEXÃO RABBITMQ\n");
+        sb.append("[CONEXÃO RABBITMQ]\n");
         sb.append("  Host: ").append(host).append(":").append(port).append("\n");
         sb.append("  Exchange: ").append(exchangeName).append(" (Topic)\n");
         sb.append("  VirtualHost: ").append(virtualHost).append("\n\n");
         
-        sb.append("🏢 INFORMAÇÕES DO AGENTE\n");
+        sb.append("[INFORMAÇÕES DO AGENTE]\n");
         sb.append("  Departamento: ").append(departmentName).append("\n");
         sb.append("  Hostname: ").append(hostname).append("\n\n");
         
-        sb.append("📨 FILAS ATIVAS\n");
+        sb.append("[FILAS ATIVAS]\n");
         sb.append("  [GERAL] ").append(generalQueueName).append("\n");
         sb.append("    └─ Routing: broadcast.*\n");
         if (departmentQueueName != null) {
@@ -289,7 +308,7 @@ public class RabbitmqService {
         }
         sb.append("\n");
         
-        sb.append("📊 STATUS ATUAL\n");
+        sb.append("[STATUS ATUAL]\n");
         sb.append("  Status: ").append(status).append("\n");
         if (lastError != null && !lastError.isEmpty()) {
             sb.append("  Último erro: ").append(lastError).append("\n");

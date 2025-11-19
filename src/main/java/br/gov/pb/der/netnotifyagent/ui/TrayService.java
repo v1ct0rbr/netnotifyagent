@@ -46,9 +46,19 @@ public class TrayService {
         trayIcon.setImageAutoSize(true);
         // Menu de contexto do tray
         PopupMenu popup = new PopupMenu();
+        MenuItem statusItem = new MenuItem("Status de Conexão");
         MenuItem filterItem = new MenuItem("Filtros de Mensagens");
         MenuItem aboutItem = new MenuItem("Sobre");
         MenuItem exitItem = new MenuItem("Sair");
+
+        statusItem.addActionListener((ActionEvent e) -> {
+            try {
+                ensureFxInitialized();
+                showConnectionStatusWindow();
+            } catch (Exception ex) {
+                trayIcon.displayMessage("NetNotify", "Erro ao abrir status: " + ex.getMessage(), TrayIcon.MessageType.ERROR);
+            }
+        });
 
         filterItem.addActionListener((ActionEvent e) -> {
             try {
@@ -61,9 +71,10 @@ public class TrayService {
 
         aboutItem.addActionListener((ActionEvent e) -> {
             try {
-                String summary = JavaRuntimeInfo.getSummary();
-                String about = Constants.getAppInfo();
-                about += "\n\n" + summary;
+                String appInfo = Constants.getAppInfo();
+                String javaInfo = JavaRuntimeInfo.getSummary();
+                String rabbitmqSummary = rabbitmqService.getSummary();
+                String about = appInfo + "\n\n" + javaInfo + "\n\n" + rabbitmqSummary;
 
                 showAboutWindow(about);
             } catch (Exception ex) {
@@ -82,6 +93,8 @@ public class TrayService {
             System.exit(0);
         });
 
+        popup.add(statusItem);
+        popup.addSeparator();
         popup.add(filterItem);
         popup.add(aboutItem);
         popup.addSeparator();
@@ -107,9 +120,10 @@ public class TrayService {
 
     private void updateTooltip() {
         try {
-            String summary = rabbitmqService.getSummary();
-            // tooltips em tray geralmente têm limite de comprimento; usamos primeira linha como título
-            trayIcon.setToolTip(summary);
+            // Tooltips têm limite de caracteres (~260 chars). Exibir apenas status essencial
+            String status = rabbitmqService.getStatus();
+            String tooltip = "NetNotify Agent\nStatus: " + status;
+            trayIcon.setToolTip(tooltip);
         } catch (Exception e) {
             // ignore
         }
@@ -157,7 +171,6 @@ public class TrayService {
     }
 
     private void showAboutWindow(String about) {
-        String sumary = JavaRuntimeInfo.getSummary();
         ensureFxInitialized();
         Platform.runLater(() -> {
             Stage stage = new Stage();
@@ -198,6 +211,53 @@ public class TrayService {
         Platform.runLater(() -> {
             FilterPreferencesWindow window = new FilterPreferencesWindow();
             window.show();
+        });
+    }
+
+    private void showConnectionStatusWindow() {
+        ensureFxInitialized();
+        Platform.runLater(() -> {
+            Stage stage = new Stage();
+            stage.initModality(Modality.APPLICATION_MODAL);
+            stage.setTitle("Status de Conexão");
+
+            javafx.scene.image.Image icon = loadFxIcon();
+            if (icon != null) {
+                stage.getIcons().add(icon);
+            }
+
+            TextArea ta = new TextArea();
+            ta.setWrapText(true);
+            ta.setEditable(false);
+            ta.setPrefSize(Integer.parseInt(Constants.STATUS_WINDOW_PREF_WIDTH), Integer.parseInt(Constants.STATUS_WINDOW_PREF_HEIGHT));
+            ta.setStyle(Constants.STATUS_WINDOW_TEXTAREA_STYLE);
+
+            // Timer para atualizar o status a cada 2 segundos
+            Timer statusUpdateTimer = new Timer(true);
+            statusUpdateTimer.scheduleAtFixedRate(new TimerTask() {
+                @Override
+                public void run() {
+                    Platform.runLater(() -> {
+                        try {
+                            String summary = rabbitmqService.getSummary();
+                            ta.setText(summary);
+                        } catch (Exception e) {
+                            // ignore
+                        }
+                    });
+                }
+            }, 0, 2000);
+
+            // Quando a janela fechar, parar o timer
+            stage.setOnCloseRequest(event -> {
+                statusUpdateTimer.cancel();
+            });
+
+            VBox root = new VBox(ta);
+            root.setPadding(new javafx.geometry.Insets(10));
+            Scene scene = new Scene(root);
+            stage.setScene(scene);
+            stage.show();
         });
     }
 }
