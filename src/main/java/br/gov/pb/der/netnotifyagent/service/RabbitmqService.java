@@ -45,6 +45,10 @@ public class RabbitmqService {
     private static final String SETTINGS_FILE = RESOURCES_PATH + "settings.properties";
     private static final int RECONNECT_DELAY_MS = 5000;
     private static final int HEARTBEAT_INTERVAL_MS = 60000;
+    private static final int CONNECTION_TIMEOUT_MS = 10000; // 10 segundos
+    private static final int CHANNEL_TIMEOUT_MS = 10000; // 10 segundos
+
+    private static final int SUMMARY_LINE_WIDTH = 60;
 
     private String host;
     private String username;
@@ -63,8 +67,13 @@ public class RabbitmqService {
 
     private Properties settings;
     private volatile boolean shouldStop = false;
+    private volatile boolean forceReconnect = false;
     private volatile String status = "Stopped";
     private volatile String lastError = "";
+    private volatile boolean isConnected = false;
+    private final Object connectionMonitor = new Object();
+    private volatile Connection currentConnection = null;
+    private volatile Channel currentChannel = null;
 
     /**
      * Construtor - carrega configurações de settings.properties
@@ -126,6 +135,10 @@ public class RabbitmqService {
         factory.setVirtualHost(this.virtualHost);
         factory.setPort(this.port);
 
+        // Configurações de timeouts (em milissegundos)
+        factory.setConnectionTimeout(CONNECTION_TIMEOUT_MS); // 10 segundos para conectar
+        factory.setChannelRpcTimeout(CHANNEL_TIMEOUT_MS); // 10 segundos para operações no canal
+
         // Configurações de resilência
         factory.setRequestedHeartbeat(HEARTBEAT_INTERVAL_MS / 1000);
         factory.setAutomaticRecoveryEnabled(true);
@@ -138,6 +151,8 @@ public class RabbitmqService {
         System.out.println("  - Username: " + this.username);
         System.out.println("  - Exchange: " + this.exchangeName);
         System.out.println("  - Permissões: READ-ONLY (não pode declarar/modificar)");
+        System.out.println("  - Connection Timeout: " + CONNECTION_TIMEOUT_MS + "ms");
+        System.out.println("  - Channel RPC Timeout: " + CHANNEL_TIMEOUT_MS + "ms");
 
         return factory;
     }
@@ -183,7 +198,7 @@ public class RabbitmqService {
             if (jsonNode.has("level")) {
                 return jsonNode.get("level").asText();
             }
-        } catch (Exception e) {
+        } catch (IOException e) {
             System.out.println("[RabbitmqService] Aviso: não foi possível extrair nível: " + e.getMessage());
         }
         return null;
@@ -322,13 +337,12 @@ public class RabbitmqService {
 
     /**
      * Aguarda indefinidamente até que shouldStop seja setado como true
-     * (de forma thread-safe)
+     * (de forma thread-safe usando monitor compartilhado)
      */
     private void waitForConnection() throws InterruptedException {
-        Object monitor = new Object();
-        synchronized (monitor) {
-            while (!shouldStop) {
-                monitor.wait(1000);
+        synchronized (connectionMonitor) {
+            while (!shouldStop && !forceReconnect && isConnected) {
+                connectionMonitor.wait(1000);
             }
         }
     }
@@ -344,63 +358,97 @@ public class RabbitmqService {
      * 5. Continua até shouldStop = true
      */
     public void startConsuming() {
-        ConnectionFactory factory = createConnectionFactory();
-
         while (!shouldStop) {
+            // Recriar factory a cada tentativa para pegar configurações atualizadas
+            ConnectionFactory factory = createConnectionFactory();
+            
             try {
                 status = "Connecting to " + host + ":" + port;
                 System.out.println("→ " + status + "...");
 
-                try (Connection connection = factory.newConnection();
-                        Channel channel = connection.createChannel()) {
+                // Cria conexão
+                Connection connection = factory.newConnection();
+                Channel channel = connection.createChannel();
 
-                    setupQueueAndExchangeConsumer(channel);
+                // Armazena referências
+                synchronized (connectionMonitor) {
+                    currentConnection = connection;
+                    currentChannel = channel;
+                    isConnected = true;
+                    forceReconnect = false; // Reset do flag após reconectar com sucesso
+                }
 
-                    status = "Connected (General: " + generalQueueName +
-                            (departmentQueueName != null ? ", Dept: " + departmentQueueName : "") + ")";
-                    System.out.println("✓ Conectado! Aguardando mensagens...\n");
+                setupQueueAndExchangeConsumer(channel);
 
-                    waitForConnection();
+                status = "Connected (General: " + generalQueueName +
+                        (departmentQueueName != null ? ", Dept: " + departmentQueueName : "") + ")";
+                System.out.println("✓ Conectado! Aguardando mensagens...\n");
 
-                } catch (ShutdownSignalException e) {
-                    // Desconexão controlada ou inesperada
-                    lastError = "Shutdown: " + e.getMessage();
-                    status = "Disconnected";
-                    System.err.println("✗ Conexão fechada: " + e.getMessage());
-                    if (e.getCause() != null) {
-                        System.err.println("  Causa: " + e.getCause().getMessage());
-                    }
+                waitForConnection();
 
-                } catch (IOException e) {
-                    // Erro de I/O (geralmente ACCESS_REFUSED = permissão negada)
-                    lastError = "IO: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
-                    status = "Disconnected";
-                    System.err.println("✗ Erro de I/O: " + e.getMessage());
-                    System.err.println("  Tipo: " + e.getClass().getName());
-                    if (e.getCause() != null) {
-                        System.err.println("  Causa: " + e.getCause().getMessage());
-                    }
+            } catch (ShutdownSignalException e) {
+                // Desconexão controlada ou inesperada
+                lastError = "Shutdown: " + e.getMessage();
+                status = "Disconnected";
+                System.err.println("✗ Conexão fechada: " + e.getMessage());
+                if (e.getCause() != null) {
+                    System.err.println("  Causa: " + e.getCause().getMessage());
+                }
 
-                    // Se for ACCESS_REFUSED, é problema de permissões
-                    if (e.getMessage() != null && e.getMessage().contains("ACCESS-REFUSED")) {
-                        System.err.println("  → SOLUÇÃO: Verifique se o usuário '" + username + "' tem permissão READ");
-                        System.err.println("            Usuário deve ser 'agent-consumer' com permissões read-only");
-                    }
+            } catch (IOException e) {
+                // Erro de I/O (geralmente ACCESS_REFUSED = permissão negada)
+                lastError = "IO: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+                status = "Disconnected";
+                System.err.println("✗ Erro de I/O: " + e.getMessage());
+                System.err.println("  Tipo: " + e.getClass().getName());
+                if (e.getCause() != null) {
+                    System.err.println("  Causa: " + e.getCause().getMessage());
+                }
 
-                } catch (TimeoutException e) {
-                    // Timeout na conexão
-                    lastError = "Timeout: " + e.getMessage();
-                    status = "Disconnected";
-                    System.err.println("✗ Timeout: " + e.getMessage());
-                    if (e.getCause() != null) {
-                        System.err.println("  Causa: " + e.getCause().getMessage());
-                    }
+                // Se for ACCESS_REFUSED, é problema de permissões
+                if (e.getMessage() != null && e.getMessage().contains("ACCESS-REFUSED")) {
+                    System.err.println("  → SOLUÇÃO: Verifique se o usuário '" + username + "' tem permissão READ");
+                    System.err.println("            Usuário deve ser 'agent-consumer' com permissões read-only");
+                }
+
+            } catch (TimeoutException e) {
+                // Timeout na conexão
+                lastError = "Timeout: " + e.getMessage();
+                status = "Disconnected";
+                System.err.println("✗ Timeout: " + e.getMessage());
+                if (e.getCause() != null) {
+                    System.err.println("  Causa: " + e.getCause().getMessage());
                 }
 
             } catch (InterruptedException e) {
                 lastError = e.getMessage();
                 status = "Disconnected";
                 System.err.println("✗ Erro na conexão: " + e.getMessage());
+                Thread.currentThread().interrupt();
+                break;
+
+            } finally {
+                // Limpa referências de conexão
+                synchronized (connectionMonitor) {
+                    isConnected = false;
+                    if (currentChannel != null && currentChannel.isOpen()) {
+                        try {
+                            currentChannel.close();
+                        } catch (Exception ignored) {
+                            // ignore
+                        }
+                    }
+                    if (currentConnection != null && currentConnection.isOpen()) {
+                        try {
+                            currentConnection.close();
+                        } catch (Exception ignored) {
+                            // ignore
+                        }
+                    }
+                    currentChannel = null;
+                    currentConnection = null;
+                    connectionMonitor.notifyAll();
+                }
             }
 
             if (!shouldStop) {
@@ -422,11 +470,41 @@ public class RabbitmqService {
      * Para o serviço de consumo (thread-safe)
      */
     public void stop() {
-        this.shouldStop = true;
+        synchronized (connectionMonitor) {
+            this.shouldStop = true;
+            connectionMonitor.notifyAll();
+        }
         System.out.println("→ Parando o serviço RabbitMQ...");
     }
 
     /**
+     * Reinicia o serviço com as configurações atualizadas
+     * Recarrega o arquivo de propriedades e inicia o consumo novamente
+     */
+    public void restart() {
+        System.out.println("↻ Reiniciando o serviço RabbitMQ com novas configurações...");
+        
+        // Recarrega configurações primeiro
+        loadConfiguration();
+        
+        // Sinaliza para forçar reconexão
+        synchronized (connectionMonitor) {
+            this.forceReconnect = true;
+            connectionMonitor.notifyAll();
+        }
+        
+        // Aguarda a thread anterior processar o sinal de reconexão
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        
+        // Reset do flag
+        synchronized (connectionMonitor) {
+            this.forceReconnect = false;
+        }
+    }    /**
      * Retorna status atual da conexão
      */
     public String getStatus() {
@@ -441,44 +519,44 @@ public class RabbitmqService {
     }
 
     /**
-     * Retorna resumo formatado da configuração do agente
+     * Retorna resumo formatado compacto da configuração do agente para exibição em
+     * tray/status
      */
     public String getSummary() {
         StringBuilder sb = new StringBuilder();
-        sb.append("═══════════════════════════════════════════════════════\n");
-        sb.append("     AGENTE NETNOTIFY - RESUMO DE CONFIGURAÇÃO\n");
-        sb.append("═══════════════════════════════════════════════════════\n\n");
+        String title = "--== NetNotify Agent - Status ==--";
+        sb.append(Functions.headerLine('═', SUMMARY_LINE_WIDTH)).append("\n");
+        sb.append(Functions.lineBuilder(title, ' ', SUMMARY_LINE_WIDTH)).append("\n");
+        sb.append(Functions.divideLine('═', SUMMARY_LINE_WIDTH)).append("\n");
+        String serverInfo = "RabbitMQ Server: " + host + ":" + port;
+        sb.append(Functions.lineBuilder(serverInfo, ' ', SUMMARY_LINE_WIDTH)).append("\n");
+        sb.append(Functions.divideLine('═', SUMMARY_LINE_WIDTH)).append("\n");
+        String userInfo = "Usuário: " + username + " (RO)";
+        sb.append(Functions.lineBuilder(userInfo, ' ', SUMMARY_LINE_WIDTH)).append("\n");
+        String exchangeInfo = "Exchange: " + exchangeName;
+        sb.append(Functions.lineBuilder(exchangeInfo, ' ', SUMMARY_LINE_WIDTH)).append("\n");
+        sb.append(Functions.divideLine('═', SUMMARY_LINE_WIDTH)).append("\n");
+        String departmentInfo = "Departamento: " + departmentName;
+        sb.append(Functions.lineBuilder(departmentInfo, ' ', SUMMARY_LINE_WIDTH)).append("\n");
+        String hostInfo = "Hostname: " + hostname;
+        sb.append(Functions.lineBuilder(hostInfo, ' ', SUMMARY_LINE_WIDTH)).append("\n");
 
-        sb.append("[CONEXÃO RABBITMQ]\n");
-        sb.append("  Host: ").append(host).append(":").append(port).append("\n");
-        sb.append("  Usuário: ").append(username).append(" (READ-ONLY)\n");
-        sb.append("  Exchange: ").append(exchangeName).append(" (Topic)\n");
-        sb.append("  VirtualHost: ").append(virtualHost).append("\n\n");
+        sb.append(Functions.divideLine('═', SUMMARY_LINE_WIDTH)).append("\n");
 
-        sb.append("[INFORMAÇÕES DO AGENTE]\n");
-        sb.append("  Departamento: ").append(departmentName).append("\n");
-        sb.append("  Hostname: ").append(hostname).append("\n\n");
+        String statusMsg = "Status: " + status;
 
-        sb.append("[FILAS ATIVAS]\n");
-        if (generalQueueName != null) {
-            sb.append("  [GERAL] ").append(generalQueueName).append("\n");
-            sb.append("    └─ Routing: broadcast.*\n");
-            sb.append("       (mensagens para TODOS os agentes)\n");
-        }
-        if (departmentQueueName != null) {
-            String deptFormatted = departmentName.toLowerCase().replace(" ", "_");
-            sb.append("  [DEPARTAMENTO] ").append(departmentQueueName).append("\n");
-            sb.append("    └─ Routing: department.").append(deptFormatted).append("\n");
-            sb.append("       (mensagens específicas de ").append(departmentName).append(")\n");
-        }
-        sb.append("\n");
+        sb.append(Functions.lineBuilder(statusMsg, ' ', SUMMARY_LINE_WIDTH)).append("\n");
 
-        sb.append("[STATUS ATUAL]\n");
-        sb.append("  Status: ").append(status).append("\n");
         if (lastError != null && !lastError.isEmpty()) {
-            sb.append("  Último erro: ").append(lastError).append("\n");
+            String errorMsg = lastError.length() > 32
+                    ? lastError.substring(0, 29) + "..."
+                    : lastError;
+            String lastErrorInfo = "Último Erro: " + errorMsg;
+            sb.append(Functions.lineBuilder(lastErrorInfo, ' ', SUMMARY_LINE_WIDTH)).append("\n");
+
         }
-        sb.append("═══════════════════════════════════════════════════════\n");
+
+        sb.append(Functions.footerLine('═', SUMMARY_LINE_WIDTH)).append("\n");
 
         return sb.toString();
     }
@@ -522,5 +600,9 @@ public class RabbitmqService {
 
     public String getDepartmentQueueName() {
         return departmentQueueName;
+    }
+
+    public boolean isConnected() {
+        return isConnected;
     }
 }

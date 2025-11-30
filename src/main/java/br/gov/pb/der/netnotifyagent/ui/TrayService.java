@@ -48,6 +48,7 @@ public class TrayService {
         PopupMenu popup = new PopupMenu();
         MenuItem statusItem = new MenuItem("Status de Conexão");
         MenuItem filterItem = new MenuItem("Filtros de Mensagens");
+        MenuItem configItem = new MenuItem("Configurações");
         MenuItem aboutItem = new MenuItem("Sobre");
         MenuItem exitItem = new MenuItem("Sair");
 
@@ -56,7 +57,8 @@ public class TrayService {
                 ensureFxInitialized();
                 showConnectionStatusWindow();
             } catch (Exception ex) {
-                trayIcon.displayMessage("NetNotify", "Erro ao abrir status: " + ex.getMessage(), TrayIcon.MessageType.ERROR);
+                trayIcon.displayMessage("NetNotify", "Erro ao abrir status: " + ex.getMessage(),
+                        TrayIcon.MessageType.ERROR);
             }
         });
 
@@ -65,7 +67,18 @@ public class TrayService {
                 ensureFxInitialized();
                 showFilterPreferencesWindow();
             } catch (Exception ex) {
-                trayIcon.displayMessage("NetNotify", "Erro ao abrir filtros: " + ex.getMessage(), TrayIcon.MessageType.ERROR);
+                trayIcon.displayMessage("NetNotify", "Erro ao abrir filtros: " + ex.getMessage(),
+                        TrayIcon.MessageType.ERROR);
+            }
+        });
+
+        configItem.addActionListener((ActionEvent e) -> {
+            try {
+                ensureFxInitialized();
+                showConfigurationWindow();
+            } catch (Exception ex) {
+                trayIcon.displayMessage("NetNotify", "Erro ao abrir configurações: " + ex.getMessage(),
+                        TrayIcon.MessageType.ERROR);
             }
         });
 
@@ -96,6 +109,7 @@ public class TrayService {
         popup.add(statusItem);
         popup.addSeparator();
         popup.add(filterItem);
+        popup.add(configItem);
         popup.add(aboutItem);
         popup.addSeparator();
         popup.add(exitItem);
@@ -120,7 +134,8 @@ public class TrayService {
 
     private void updateTooltip() {
         try {
-            // Tooltips têm limite de caracteres (~260 chars). Exibir apenas status essencial
+            // Tooltips têm limite de caracteres (~260 chars). Exibir apenas status
+            // essencial
             String status = rabbitmqService.getStatus();
             String tooltip = "NetNotify Agent\nStatus: " + status;
             trayIcon.setToolTip(tooltip);
@@ -185,7 +200,8 @@ public class TrayService {
             TextArea ta = new TextArea(about);
             ta.setWrapText(true);
             ta.setEditable(false);
-            ta.setPrefSize(Integer.parseInt(Constants.STATUS_WINDOW_PREF_WIDTH), Integer.parseInt(Constants.STATUS_WINDOW_PREF_HEIGHT));
+            ta.setPrefSize(Integer.parseInt(Constants.STATUS_WINDOW_PREF_WIDTH),
+                    Integer.parseInt(Constants.STATUS_WINDOW_PREF_HEIGHT));
             ta.setStyle(Constants.STATUS_WINDOW_TEXTAREA_STYLE);
 
             VBox root = new VBox(ta);
@@ -214,6 +230,23 @@ public class TrayService {
         });
     }
 
+    private void showConfigurationWindow() {
+        ensureFxInitialized();
+        Platform.runLater(() -> {
+            ConfigurationWindow window = new ConfigurationWindow();
+            // Define callback para reiniciar o serviço após salvar
+            window.setOnConfigurationSaved(() -> {
+                try {
+                    Thread.sleep(500); // Pequeno delay antes de reiniciar
+                    rabbitmqService.restart();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            window.show();
+        });
+    }
+
     private void showConnectionStatusWindow() {
         ensureFxInitialized();
         Platform.runLater(() -> {
@@ -229,7 +262,8 @@ public class TrayService {
             TextArea ta = new TextArea();
             ta.setWrapText(true);
             ta.setEditable(false);
-            ta.setPrefSize(Integer.parseInt(Constants.STATUS_WINDOW_PREF_WIDTH), Integer.parseInt(Constants.STATUS_WINDOW_PREF_HEIGHT));
+            ta.setPrefSize(Integer.parseInt(Constants.STATUS_WINDOW_PREF_WIDTH),
+                    Integer.parseInt(Constants.STATUS_WINDOW_PREF_HEIGHT));
             ta.setStyle(Constants.STATUS_WINDOW_TEXTAREA_STYLE);
 
             // Timer para atualizar o status a cada 2 segundos
