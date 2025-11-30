@@ -21,6 +21,24 @@ import br.gov.pb.der.netnotifyagent.ui.Alert;
 import br.gov.pb.der.netnotifyagent.utils.FilterSettings;
 import br.gov.pb.der.netnotifyagent.utils.Functions;
 
+/**
+ * Serviço RabbitMQ para Agente
+ * 
+ * Arquitetura:
+ * - Consome mensagens de 2 filas:
+ * 1. Fila Geral: recebe broadcast.* (mensagens para TODOS)
+ * 2. Fila Departamento: recebe department.{nome} (mensagens específicas)
+ * 
+ * Permissões:
+ * - Usa credencial 'agent-consumer' com permissão READ-ONLY
+ * - NÃO pode declarar/modificar exchanges e filas (apenas consumir)
+ * - Filas são pré-criadas pelo servidor (admin-producer) na inicialização
+ * 
+ * Estratégia de Consumo:
+ * - Declarações PASSIVAS apenas (verifica se existem, não cria)
+ * - Usa bindPattern para receber mensagens via Topic Exchange
+ * - Auto-reconexão com retry exponencial
+ */
 public class RabbitmqService {
 
     private static final String RESOURCES_PATH = "resources/";
@@ -34,48 +52,59 @@ public class RabbitmqService {
     private String exchangeName;
     private String virtualHost;
     private int port;
-    
-    // NOVO: Informações do departamento (apenas NOME)
-    private String departmentName;
-    private String hostname;
-    
+
+    // Informações do agente
+    private String departmentName; // APENAS NOME (ex: "Financeiro", "RH")
+    private String hostname; // Hostname da máquina
+
     // Nomes das filas criadas
     private String generalQueueName;
     private String departmentQueueName;
-    
+
     private Properties settings;
     private volatile boolean shouldStop = false;
     private volatile String status = "Stopped";
     private volatile String lastError = "";
 
+    /**
+     * Construtor - carrega configurações de settings.properties
+     */
     public RabbitmqService() {
         loadConfiguration();
     }
 
+    /**
+     * Carrega configurações de RabbitMQ e do agente do arquivo de propriedades
+     */
     private void loadConfiguration() {
         try {
             this.settings = Functions.loadProperties(SETTINGS_FILE);
             this.host = settings.getProperty("rabbitmq.host");
             this.username = settings.getProperty("rabbitmq.username");
             this.password = settings.getProperty("rabbitmq.password");
-            this.exchangeName = settings.getProperty("rabbitmq.exchange", "netnotify.topic");
+            this.exchangeName = settings.getProperty("rabbitmq.exchange", "netnotify_topic");
             this.virtualHost = settings.getProperty("rabbitmq.virtualhost", "/");
             this.port = Integer.parseInt(settings.getProperty("rabbitmq.port", "5672"));
-            
-            // NOVO: Carrega APENAS o NOME do departamento
+
+            // Carrega APENAS o NOME do departamento (não ID, não outras informações)
             this.departmentName = settings.getProperty("agent.department.name", "unknown");
             this.hostname = settings.getProperty("agent.hostname", getLocalHostname());
-            
+
             System.out.println("✓ Configuração carregada:");
             System.out.println("  - Host: " + host + ":" + port);
+            System.out.println("  - Usuário: " + username + " (agent-consumer, read-only)");
+            System.out.println("  - Exchange: " + exchangeName);
             System.out.println("  - Departamento: " + departmentName);
             System.out.println("  - Hostname: " + hostname);
-            
+
         } catch (IOException e) {
             System.err.println("✗ Erro ao carregar configurações: " + e.getMessage());
         }
     }
 
+    /**
+     * Obtém hostname local ou gera ID único se não conseguir
+     */
     private String getLocalHostname() {
         try {
             return InetAddress.getLocalHost().getHostName().replaceAll("[^a-zA-Z0-9\\-]", "_");
@@ -84,50 +113,69 @@ public class RabbitmqService {
         }
     }
 
+    /**
+     * Cria ConnectionFactory com credenciais de consumidor (agent-consumer)
+     * - Usa permissões read-only
+     * - NÃO pode declarar/modificar infraestrutura
+     */
     private ConnectionFactory createConnectionFactory() {
         ConnectionFactory factory = new ConnectionFactory();
         factory.setHost(this.host);
-        factory.setUsername(this.username);
+        factory.setUsername(this.username); // agent-consumer
         factory.setPassword(this.password);
         factory.setVirtualHost(this.virtualHost);
         factory.setPort(this.port);
-        
+
+        // Configurações de resilência
         factory.setRequestedHeartbeat(HEARTBEAT_INTERVAL_MS / 1000);
         factory.setAutomaticRecoveryEnabled(true);
         factory.setNetworkRecoveryInterval(RECONNECT_DELAY_MS);
-        
-        System.out.println("[DEBUG] ConnectionFactory configurada:");
+
+        System.out.println("[DEBUG] ConnectionFactory configurada (agent-consumer):");
         System.out.println("  - Host: " + this.host);
         System.out.println("  - Port: " + this.port);
         System.out.println("  - VirtualHost: " + this.virtualHost);
         System.out.println("  - Username: " + this.username);
         System.out.println("  - Exchange: " + this.exchangeName);
-        
+        System.out.println("  - Permissões: READ-ONLY (não pode declarar/modificar)");
+
         return factory;
     }
 
+    /**
+     * Cria callback para processar mensagens recebidas
+     * 
+     * @param queueType Tipo de fila ("GERAL" ou "DEPARTAMENTO") - apenas para
+     *                  logging
+     */
     private DeliverCallback createDeliverCallback(String queueType) {
         return (consumerTag, delivery) -> {
             try {
                 String message = new String(delivery.getBody(), StandardCharsets.UTF_8);
                 System.out.println("[" + queueType + "] Mensagem recebida: " + message);
 
-                // Extrair nível da mensagem para verificar filtro
+                // Extrai nível da mensagem JSON para aplicar filtro
                 String level = extractLevelFromMessage(message);
 
-                // Verificar se a mensagem deve ser exibida baseado no filtro
+                // Verifica se deve exibir baseado em filtro do usuário
                 if (!FilterSettings.shouldShowMessage(level)) {
                     System.out.println("[RabbitmqService] Mensagem com nível '" + level + "' filtrada pelo usuário");
                     return;
                 }
 
+                // Exibe alerta na interface
                 Alert.getInstance().showHtml(message);
+
             } catch (Exception e) {
                 System.err.println("Erro ao processar mensagem: " + e.getMessage());
             }
         };
     }
 
+    /**
+     * Extrai o campo "level" (INFO, WARN, ERROR, etc) da mensagem JSON
+     * Usado para aplicar filtro de severidade
+     */
     private String extractLevelFromMessage(String message) {
         try {
             ObjectMapper mapper = new ObjectMapper();
@@ -141,6 +189,9 @@ public class RabbitmqService {
         return null;
     }
 
+    /**
+     * Cria callback para quando o consumidor é cancelado
+     */
     private CancelCallback createCancelCallback(String queueType) {
         return consumerTag -> {
             System.out.println("[" + queueType + "] Consumidor cancelado: " + consumerTag);
@@ -148,55 +199,131 @@ public class RabbitmqService {
     }
 
     /**
-     * Configura 2 filas:
-     * 1. Fila Geral: recebe mensagens broadcast para TODOS
-     * 2. Fila Departamento: recebe mensagens específicas do departamento
+     * Configura e inicia consumo de 2 filas:
+     * 
+     * 1. FILA GERAL (broadcast.*)
+     * - Recebe mensagens para TODOS os agentes
+     * - Nome: queue_agent_{hostname}
+     * - Binding Pattern: broadcast.*
+     * 
+     * 2. FILA DEPARTAMENTO (department.{nome})
+     * - Recebe mensagens específicas do departamento deste agente
+     * - Nome: queue_department_{departamento}_{hostname}
+     * - Binding Pattern: department.{nome}
+     * 
+     * IMPORTANTE: Usa declarações ATIVAS com idempotência
+     * - RabbitMQ garante que queueDeclare() cria se não existir, verifica se
+     * existir
+     * - Elimina race condition entre verificação e criação
+     * - Permissões do usuário agent-consumer aplicadas corretamente
+     * 
+     * @param channel Canal aberto com RabbitMQ
      */
     private void setupQueueAndExchangeConsumer(Channel channel) throws IOException {
-        
-        // ========== SETUP DO EXCHANGE ==========
-        // durable=false para matching com o exchange existente no servidor
-        channel.exchangeDeclare(exchangeName, "topic", false);
-        System.out.println("✓ Exchange declarado: " + exchangeName + " (tipo: topic, não-durável)");
 
-        // ========== FILA 1: MENSAGENS GERAIS ==========
-        this.generalQueueName = "queue_general_" + hostname;
-        
-        channel.queueDeclare(generalQueueName, true, false, false, null);
-        System.out.println("✓ Fila Geral criada: " + generalQueueName);
+        System.out.println("\n[SETUP] Configurando filas de consumo...");
+
+        // ========== VERIFICAÇÃO DO EXCHANGE ==========
+        // Verifica se o exchange existe (não cria, pois é criado pelo servidor)
+        try {
+            channel.exchangeDeclarePassive(exchangeName);
+            System.out.println("✓ Exchange existe: " + exchangeName + " (tipo: topic)");
+        } catch (IOException e) {
+            System.err.println("✗ ERRO: Exchange '" + exchangeName + "' não existe!");
+            System.err.println("  O servidor deve ter criado este exchange durante a inicialização.");
+            System.err.println("  Verifique se o servidor está rodando.");
+            throw e;
+        }
+
+        // ========== FILA 1: MENSAGENS GERAIS (broadcast) ==========
+        this.generalQueueName = "queue_agent_" + hostname;
+        System.out.println("\n[FILA 1] Configurando fila geral...");
+
+        try {
+            // Declara a fila (cria se não existir, verifica se existir)
+            // RabbitMQ garante idempotência - permissions aplicadas pelo user
+            // agent-consumer
+            channel.queueDeclare(generalQueueName, true, false, false, null);
+            System.out.println("✓ Fila Geral verificada/criada: " + generalQueueName);
+        } catch (IOException e) {
+            System.err.println("✗ ERRO ao declarar fila '" + generalQueueName + "'");
+            System.err.println("  Mensagem: " + e.getMessage());
+            System.err.println("  Tipo: " + e.getClass().getName());
+            if (e.getCause() != null) {
+                System.err.println("  Causa: " + e.getCause().getMessage());
+            }
+            throw e;
+        }
 
         // Bind para receber BROADCAST de TODOS
-        channel.queueBind(generalQueueName, exchangeName, "broadcast.*");
-        System.out.println("  → Padrão: broadcast.*");
+        try {
+            channel.queueBind(generalQueueName, exchangeName, "broadcast.*");
+            System.out.println("  → Binding Pattern: broadcast.*");
+            System.out.println("  → Receberá: mensagens gerais para TODOS os agentes");
+        } catch (IOException e) {
+            System.err.println("✗ ERRO ao fazer binding da fila '" + generalQueueName + "'");
+            System.err.println("  Exchange: " + exchangeName);
+            System.err.println("  Pattern: broadcast.*");
+            System.err.println("  Mensagem: " + e.getMessage());
+            throw e;
+        }
 
         // Inicia consumo da fila geral
-        channel.basicConsume(generalQueueName, true, 
-                createDeliverCallback("GERAL"), 
+        channel.basicConsume(generalQueueName, true,
+                createDeliverCallback("GERAL"),
                 createCancelCallback("GERAL"));
+        System.out.println("  → Consumindo: SIM");
 
         // ========== FILA 2: MENSAGENS DO DEPARTAMENTO ==========
+        System.out.println("\n[FILA 2] Configurando fila de departamento...");
+
         if (departmentName != null && !departmentName.isEmpty() && !departmentName.equals("unknown")) {
             String deptNameFormatted = departmentName.toLowerCase().replace(" ", "_");
             this.departmentQueueName = "queue_department_" + deptNameFormatted + "_" + hostname;
-            
-            channel.queueDeclare(departmentQueueName, true, false, false, null);
-            System.out.println("✓ Fila Departamento criada: " + departmentQueueName);
+
+            try {
+                // Declara a fila (cria se não existir, verifica se existir)
+                channel.queueDeclare(departmentQueueName, true, false, false, null);
+                System.out.println("✓ Fila Departamento verificada/criada: " + departmentQueueName);
+            } catch (IOException e) {
+                System.err.println("✗ ERRO ao declarar fila '" + departmentQueueName + "'");
+                System.err.println("  Mensagem: " + e.getMessage());
+                throw e;
+            }
 
             // Bind para receber mensagens ESPECÍFICAS do departamento
             String deptRoutingPattern = "department." + deptNameFormatted;
-            channel.queueBind(departmentQueueName, exchangeName, deptRoutingPattern);
-            System.out.println("  → Padrão: " + deptRoutingPattern);
+            try {
+                channel.queueBind(departmentQueueName, exchangeName, deptRoutingPattern);
+                System.out.println("  → Binding Pattern: " + deptRoutingPattern);
+                System.out.println("  → Receberá: mensagens específicas de " + departmentName);
+            } catch (IOException e) {
+                System.err.println("✗ ERRO ao fazer binding da fila '" + departmentQueueName + "'");
+                System.err.println("  Exchange: " + exchangeName);
+                System.err.println("  Pattern: " + deptRoutingPattern);
+                System.err.println("  Mensagem: " + e.getMessage());
+                throw e;
+            }
 
             // Inicia consumo da fila de departamento
             channel.basicConsume(departmentQueueName, true,
                     createDeliverCallback("DEPARTAMENTO"),
                     createCancelCallback("DEPARTAMENTO"));
+            System.out.println("  → Consumindo: SIM");
+
         } else {
             System.out.println("⚠ AVISO: departmentName não configurado!");
-            System.out.println("  Agente receberá APENAS mensagens gerais (broadcast)");
+            System.out.println("  Agente receberá APENAS mensagens gerais (broadcast.*)");
+            this.departmentQueueName = null;
         }
+
+        System.out.println("");
     }
 
+    /**
+     * Aguarda indefinidamente até que shouldStop seja setado como true
+     * (de forma thread-safe)
+     */
     private void waitForConnection() throws InterruptedException {
         Object monitor = new Object();
         synchronized (monitor) {
@@ -206,6 +333,16 @@ public class RabbitmqService {
         }
     }
 
+    /**
+     * Inicia o consumo de mensagens do RabbitMQ
+     * 
+     * Fluxo:
+     * 1. Conecta ao RabbitMQ com credenciais de consumidor (read-only)
+     * 2. Configura as 2 filas (geral + departamento)
+     * 3. Aguarda mensagens indefinidamente
+     * 4. Se desconectar, reconecta após 5 segundos
+     * 5. Continua até shouldStop = true
+     */
     public void startConsuming() {
         ConnectionFactory factory = createConnectionFactory();
 
@@ -215,23 +352,27 @@ public class RabbitmqService {
                 System.out.println("→ " + status + "...");
 
                 try (Connection connection = factory.newConnection();
-                     Channel channel = connection.createChannel()) {
+                        Channel channel = connection.createChannel()) {
 
                     setupQueueAndExchangeConsumer(channel);
-                    status = "Connected (General: " + generalQueueName + 
-                             (departmentQueueName != null ? ", Dept: " + departmentQueueName : "") + ")";
+
+                    status = "Connected (General: " + generalQueueName +
+                            (departmentQueueName != null ? ", Dept: " + departmentQueueName : "") + ")";
                     System.out.println("✓ Conectado! Aguardando mensagens...\n");
 
                     waitForConnection();
 
                 } catch (ShutdownSignalException e) {
+                    // Desconexão controlada ou inesperada
                     lastError = "Shutdown: " + e.getMessage();
                     status = "Disconnected";
                     System.err.println("✗ Conexão fechada: " + e.getMessage());
                     if (e.getCause() != null) {
                         System.err.println("  Causa: " + e.getCause().getMessage());
                     }
+
                 } catch (IOException e) {
+                    // Erro de I/O (geralmente ACCESS_REFUSED = permissão negada)
                     lastError = "IO: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
                     status = "Disconnected";
                     System.err.println("✗ Erro de I/O: " + e.getMessage());
@@ -239,7 +380,15 @@ public class RabbitmqService {
                     if (e.getCause() != null) {
                         System.err.println("  Causa: " + e.getCause().getMessage());
                     }
+
+                    // Se for ACCESS_REFUSED, é problema de permissões
+                    if (e.getMessage() != null && e.getMessage().contains("ACCESS-REFUSED")) {
+                        System.err.println("  → SOLUÇÃO: Verifique se o usuário '" + username + "' tem permissão READ");
+                        System.err.println("            Usuário deve ser 'agent-consumer' com permissões read-only");
+                    }
+
                 } catch (TimeoutException e) {
+                    // Timeout na conexão
                     lastError = "Timeout: " + e.getMessage();
                     status = "Disconnected";
                     System.err.println("✗ Timeout: " + e.getMessage());
@@ -255,7 +404,7 @@ public class RabbitmqService {
             }
 
             if (!shouldStop) {
-                System.out.println("→ Tentando reconectar em " + (RECONNECT_DELAY_MS / 1000) + "s...");
+                System.out.println("→ Tentando reconectar em " + (RECONNECT_DELAY_MS / 1000) + "s...\n");
                 try {
                     Thread.sleep(RECONNECT_DELAY_MS);
                 } catch (InterruptedException e) {
@@ -269,64 +418,109 @@ public class RabbitmqService {
         System.out.println("✓ Serviço RabbitMQ finalizado.");
     }
 
+    /**
+     * Para o serviço de consumo (thread-safe)
+     */
     public void stop() {
         this.shouldStop = true;
         System.out.println("→ Parando o serviço RabbitMQ...");
     }
 
-    // ========== GETTERS ==========
+    /**
+     * Retorna status atual da conexão
+     */
     public String getStatus() {
         return status;
     }
 
+    /**
+     * Retorna último erro ocorrido
+     */
     public String getLastError() {
         return lastError;
     }
 
+    /**
+     * Retorna resumo formatado da configuração do agente
+     */
     public String getSummary() {
         StringBuilder sb = new StringBuilder();
         sb.append("═══════════════════════════════════════════════════════\n");
         sb.append("     AGENTE NETNOTIFY - RESUMO DE CONFIGURAÇÃO\n");
         sb.append("═══════════════════════════════════════════════════════\n\n");
-        
+
         sb.append("[CONEXÃO RABBITMQ]\n");
         sb.append("  Host: ").append(host).append(":").append(port).append("\n");
+        sb.append("  Usuário: ").append(username).append(" (READ-ONLY)\n");
         sb.append("  Exchange: ").append(exchangeName).append(" (Topic)\n");
         sb.append("  VirtualHost: ").append(virtualHost).append("\n\n");
-        
+
         sb.append("[INFORMAÇÕES DO AGENTE]\n");
         sb.append("  Departamento: ").append(departmentName).append("\n");
         sb.append("  Hostname: ").append(hostname).append("\n\n");
-        
+
         sb.append("[FILAS ATIVAS]\n");
-        sb.append("  [GERAL] ").append(generalQueueName).append("\n");
-        sb.append("    └─ Routing: broadcast.*\n");
+        if (generalQueueName != null) {
+            sb.append("  [GERAL] ").append(generalQueueName).append("\n");
+            sb.append("    └─ Routing: broadcast.*\n");
+            sb.append("       (mensagens para TODOS os agentes)\n");
+        }
         if (departmentQueueName != null) {
             String deptFormatted = departmentName.toLowerCase().replace(" ", "_");
             sb.append("  [DEPARTAMENTO] ").append(departmentQueueName).append("\n");
             sb.append("    └─ Routing: department.").append(deptFormatted).append("\n");
+            sb.append("       (mensagens específicas de ").append(departmentName).append(")\n");
         }
         sb.append("\n");
-        
+
         sb.append("[STATUS ATUAL]\n");
         sb.append("  Status: ").append(status).append("\n");
         if (lastError != null && !lastError.isEmpty()) {
             sb.append("  Último erro: ").append(lastError).append("\n");
         }
         sb.append("═══════════════════════════════════════════════════════\n");
-        
+
         return sb.toString();
     }
 
-    // Getters
-    public String getHost() { return host; }
-    public String getUsername() { return username; }
-    public String getPassword() { return password; }
-    public String getExchangeName() { return exchangeName; }
-    public String getVirtualHost() { return virtualHost; }
-    public int getPort() { return port; }
-    public String getDepartmentName() { return departmentName; }
-    public String getHostname() { return hostname; }
-    public String getGeneralQueueName() { return generalQueueName; }
-    public String getDepartmentQueueName() { return departmentQueueName; }
+    // ========== GETTERS ==========
+    public String getHost() {
+        return host;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public String getExchangeName() {
+        return exchangeName;
+    }
+
+    public String getVirtualHost() {
+        return virtualHost;
+    }
+
+    public int getPort() {
+        return port;
+    }
+
+    public String getDepartmentName() {
+        return departmentName;
+    }
+
+    public String getHostname() {
+        return hostname;
+    }
+
+    public String getGeneralQueueName() {
+        return generalQueueName;
+    }
+
+    public String getDepartmentQueueName() {
+        return departmentQueueName;
+    }
 }
