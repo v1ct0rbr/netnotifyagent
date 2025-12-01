@@ -339,7 +339,7 @@ public class Alert {
     // Usar font roboto ou similar para melhor compatibilidade
     public String addHtmlTagsToContent(Message message) {
         if (message == null || message.getContent() == null || message.getContent().isEmpty()) {
-            return message.getContent();
+            return message != null && message.getContent() != null ? message.getContent() : "";
         }
         // Inline remote images before wrapping in HTML tags
         String processedContent = inlineRemoteImages(message.getContent());

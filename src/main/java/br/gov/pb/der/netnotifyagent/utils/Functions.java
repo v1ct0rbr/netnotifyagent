@@ -23,8 +23,8 @@ public class Functions {
         try {
             com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
             message = objectMapper.readValue(json, aClass);
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (IOException e) {
+            System.err.println("Erro ao processar JSON: " + e.getMessage());
         }
         return message;
     }

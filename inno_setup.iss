@@ -66,9 +66,9 @@ begin
 	PageRabbit.Add('Virtual Host:', False);
 	PageRabbit.Values[0] := 'localhost';
 	PageRabbit.Values[1] := '5672';
-	PageRabbit.Values[2] := 'admin';
-	PageRabbit.Values[3] := 'admin';
-	PageRabbit.Values[4] := 'netnotify';
+	PageRabbit.Values[2] := 'agent-consumer';
+	PageRabbit.Values[3] := '';
+	PageRabbit.Values[4] := 'netnotify_topic';
 	PageRabbit.Values[5] := '/';
 
 	{ Página de entrada: Configurações do Agent }
@@ -83,11 +83,9 @@ begin
 	PageJava := CreateInputQueryPage(wpSelectDir,
 		'Configuração Java (Opcional)',
 		'Deixe em branco para usar o Java do PATH ou JAVA_HOME',
-		'Se ambos forem definidos, java.executable tem prioridade.');
-	PageJava.Add('java.home (ex: C:\\Program Files\\Java\\jdk-21):', False);
-	PageJava.Add('java.executable (ex: C:\\Program Files\\Java\\jdk-21\\bin\\javaw.exe):', False);
+		'Digite apenas o caminho raiz da instalação do Java.');
+	PageJava.Add('Caminho da instalação do Java (ex: C:\\Program Files\\Java\\jdk-21):', False);
 	PageJava.Values[0] := '';
-	PageJava.Values[1] := '';
 end;
 
 procedure WriteSettingsFile;
@@ -117,19 +115,13 @@ begin
 
 	SettingsContent := SettingsContent + CRLF;
 	SettingsContent := SettingsContent + '# ===== JAVA RUNTIME OPCIONAL =====' + CRLF;
-	SettingsContent := SettingsContent + '# Defina o caminho para a versao do Java a ser usada pela aplicacao.' + CRLF;
-	SettingsContent := SettingsContent + '# Se ambos forem definidos, java.executable tem prioridade.' + CRLF;
+	SettingsContent := SettingsContent + '# Defina o caminho raiz para a instalacao do Java.' + CRLF;
 	SettingsContent := SettingsContent + '# Caso nao definido, o launcher usara JAVA_HOME ou o java do PATH.' + CRLF;
 
 	if PageJava.Values[0] <> '' then
 		SettingsContent := SettingsContent + 'java.home=' + PageJava.Values[0] + CRLF
 	else
 		SettingsContent := SettingsContent + '# java.home=' + CRLF;
-
-	if PageJava.Values[1] <> '' then
-		SettingsContent := SettingsContent + 'java.executable=' + PageJava.Values[1] + CRLF
-	else
-		SettingsContent := SettingsContent + '# java.executable=' + CRLF;
 
 	SettingsContent := SettingsContent + CRLF;
 	SettingsContent := SettingsContent + '# ===== CONFIGURACOES DE FILTRO DE MENSAGENS =====' + CRLF;
