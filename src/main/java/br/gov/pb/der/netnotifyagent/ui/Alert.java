@@ -1,27 +1,28 @@
 package br.gov.pb.der.netnotifyagent.ui;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
+import java.awt.Desktop;
 import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.Base64;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException; // initializes toolkit when running from non-JFX app
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import br.gov.pb.der.netnotifyagent.dto.Message;
 import br.gov.pb.der.netnotifyagent.utils.Constants;
+import br.gov.pb.der.netnotifyagent.utils.Functions;
 import br.gov.pb.der.netnotifyagent.utils.MessageUtils;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
-import javafx.scene.Scene;
+import javafx.geometry.Pos;
+import javafx.scene.Scene; // initializes toolkit when running from non-JFX app
+import javafx.scene.control.Button;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.image.Image;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Text;
 import javafx.scene.web.WebEngine;
@@ -154,7 +155,10 @@ public class Alert {
             // Inicializa JavaFX toolkit se necessário
             ensureFxInitialized();
 
-            final String contentToLoad = sanitizeHtml(addHtmlTagsToContent(message));
+            final String contentToLoad = sanitizeHtml(Functions.addHtmlTagsToContent(message));
+            // Versão não sanitizada (mas ainda com imagens inlined) para abrir no navegador
+            // externo
+            final String fullHtmlForBrowser = Functions.addHtmlTagsToContent(message);
 
             Platform.runLater(() -> {
                 try {
@@ -231,7 +235,28 @@ public class Alert {
                         }
                     });
 
-                    VBox root = new VBox(webView);
+                    // Botão no rodapé para abrir em navegador externo
+                    Button openInBrowserButton = new Button("Abrir no navegador");
+                    openInBrowserButton.setOnAction(evt -> {
+                        try {
+                            if (!Desktop.isDesktopSupported()
+                                    || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                                System.err.println("Desktop browse not supported");
+                                return;
+                            }
+                            Path tempFile = Files.createTempFile("netnotifyagent-msg-", ".html");
+                            Files.writeString(tempFile, fullHtmlForBrowser, StandardCharsets.UTF_8);
+                            Desktop.getDesktop().browse(tempFile.toUri());
+                        } catch (Exception ex) {
+                            System.err.println("Erro ao abrir conteúdo no navegador: " + ex.getMessage());
+                        }
+                    });
+
+                    HBox buttonBar = new HBox(openInBrowserButton);
+                    buttonBar.setAlignment(Pos.CENTER_RIGHT);
+                    buttonBar.setPadding(new Insets(5, 0, 0, 0));
+
+                    VBox root = new VBox(webView, buttonBar);
                     root.setPadding(new Insets(5));
                     Scene scene = new Scene(root);
                     stage.setScene(scene);
@@ -288,75 +313,8 @@ public class Alert {
         }
     }
 
-    /**
-     * Substitui <img src="http(s)://..."> por data URIs base64 quando possível.
-     * Em caso de falha no download, mantém a tag original.
-     */
-    private String inlineRemoteImages(String html) {
-        if (html == null || html.isEmpty()) {
-            return html;
-        }
-        Pattern p = Pattern.compile("<img\\s+[^>]*src\\s*=\\s*\"(https?://[^\"\\s>]+)\"[^>]*>",
-                Pattern.CASE_INSENSITIVE);
-        Matcher m = p.matcher(html);
-        StringBuffer sb = new StringBuffer();
-        while (m.find()) {
-            String urlStr = m.group(1);
-            try {
-                URL url = new URL(urlStr);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
-                conn.setRequestProperty("User-Agent", "NetNotifyAgent/1.0");
-                conn.setInstanceFollowRedirects(true);
-                try (InputStream in = conn.getInputStream(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-                    byte[] buf = new byte[8192];
-                    int r;
-                    while ((r = in.read(buf)) != -1) {
-                        out.write(buf, 0, r);
-                    }
-                    byte[] bytes = out.toByteArray();
-                    String contentType = conn.getContentType();
-                    if (contentType == null) {
-                        contentType = "image/png";
-                    }
-                    String base64 = Base64.getEncoder().encodeToString(bytes);
-                    String dataUri = "data:" + contentType + ";base64," + base64;
-                    String originalTag = m.group(0);
-                    String replacement = originalTag.replace(urlStr, dataUri);
-                    m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
-                }
-            } catch (IOException ex) {
-                // não conseguiu baixar, deixa a tag original
-                m.appendReplacement(sb, Matcher.quoteReplacement(m.group(0)));
-            }
-        }
-        m.appendTail(sb);
-        return sb.toString();
-    }
-
     // Adiciona tags HTML básicas se não existirem
     // Usar font roboto ou similar para melhor compatibilidade
-    public String addHtmlTagsToContent(Message message) {
-        if (message == null || message.getContent() == null || message.getContent().isEmpty()) {
-            return message != null && message.getContent() != null ? message.getContent() : "";
-        }
-        // Inline remote images before wrapping in HTML tags
-        String processedContent = inlineRemoteImages(message.getContent());
-        StringBuilder sb = new StringBuilder();
-        sb.append("<html><head><meta charset=\"UTF-8\">");
-        sb.append(
-                "<link href=\"https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap\" rel=\"stylesheet\">");
-        sb.append("<style>");
-        sb.append("body { font-family: Arial, sans-serif; margin: 10px; }");
-        sb.append("img { max-width: 100%; height: auto; }");
-        sb.append("</style>");
-        sb.append("</head><body>");
-        sb.append(MessageUtils.formatMessageLevel(message.getLevel(), message.getTitle()));
-        sb.append(processedContent);
-        sb.append("</body></html>");
-        return sb.toString();
-    }
 
     /**
      * Remove scripts, iframes, meta-refresh e atributos de evento (onerror/onload

@@ -13,6 +13,7 @@ import br.gov.pb.der.netnotifyagent.utils.Constants;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
@@ -38,6 +39,7 @@ public class ConfigurationWindow {
     private TextField routingKeyField;
     private TextField virtualhostField;
     private TextField departmentField;
+    private ComboBox<String> notificationModeCombo;
     private Runnable onConfigurationSaved;
 
     public ConfigurationWindow() {
@@ -104,6 +106,15 @@ public class ConfigurationWindow {
         this.virtualhostField = createTextField("rabbitmq.virtualhost", "/");
         this.departmentField = createTextField("agent.department.name", "");
 
+        this.notificationModeCombo = new ComboBox<>();
+        this.notificationModeCombo.getItems().addAll("Janela padrão", "Browser");
+        String notifMode = properties.getProperty("notifications.display.mode", "window");
+        if ("browser".equalsIgnoreCase(notifMode)) {
+            this.notificationModeCombo.getSelectionModel().select("Browser");
+        } else {
+            this.notificationModeCombo.getSelectionModel().select("Janela padrão");
+        }
+
         int row = 0;
         grid.add(new Label("RabbitMQ Host:"), 0, row);
         grid.add(hostField, 1, row++);
@@ -138,6 +149,9 @@ public class ConfigurationWindow {
 
         grid.add(new Label("Departamento:"), 0, row);
         grid.add(departmentField, 1, row++);
+
+        grid.add(new Label("Abrir notificações em:"), 0, row);
+        grid.add(notificationModeCombo, 1, row++);
 
         // Botões
         Button saveButton = new Button("Salvar");
@@ -203,6 +217,15 @@ public class ConfigurationWindow {
         routingKeyField.setText(properties.getProperty("rabbitmq.routingkey", ""));
         virtualhostField.setText(properties.getProperty("rabbitmq.virtualhost", "/"));
         departmentField.setText(properties.getProperty("agent.department.name", ""));
+
+        String notifMode = properties.getProperty("notifications.display.mode", "window");
+        if (notificationModeCombo != null) {
+            if ("browser".equalsIgnoreCase(notifMode)) {
+                notificationModeCombo.getSelectionModel().select("Browser");
+            } else {
+                notificationModeCombo.getSelectionModel().select("Janela padrão");
+            }
+        }
     }
 
     private TextField createTextField(String key, String defaultValue) {
@@ -255,6 +278,13 @@ public class ConfigurationWindow {
 
         for (int i = 0; i < fields.length && i < keys.length; i++) {
             properties.setProperty(keys[i], fields[i].getText());
+        }
+
+        // Modo de exibição das notificações
+        if (notificationModeCombo != null) {
+            String selected = notificationModeCombo.getSelectionModel().getSelectedItem();
+            String mode = "browser".equalsIgnoreCase(selected) ? "browser" : "window";
+            properties.setProperty("notifications.display.mode", mode);
         }
 
         // Salvar para arquivo

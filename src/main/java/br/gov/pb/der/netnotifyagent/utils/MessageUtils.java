@@ -32,7 +32,9 @@ public class MessageUtils {
             case LEVEL_MEDIUM -> "<h1 style=\"color:orange;\">" + title + "</h1>";
             case LEVEL_HIGH -> "<h1 style=\"color:red;\">" + title + "</h1>";
             case LEVEL_URGENTE -> "<h1 style=\"color:darkred;\">" + title + "</h1>";
-            default -> "<h1>" + title + "</h1>";
+
+            // text cetralizado e negrito
+            default -> "<h1 style=\"text-align:center;\">" + title + "</h1>";
         };
     }
 

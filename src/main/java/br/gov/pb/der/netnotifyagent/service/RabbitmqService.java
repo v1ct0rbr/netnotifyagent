@@ -1,9 +1,12 @@
 package br.gov.pb.der.netnotifyagent.service;
 
+import java.awt.Desktop;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
@@ -65,6 +68,9 @@ public class RabbitmqService {
     private String generalQueueName;
     private String departmentQueueName;
 
+    // Preferência de exibição das notificações (window | browser)
+    private String notificationsDisplayMode;
+
     private Properties settings;
     private volatile boolean shouldStop = false;
     private volatile boolean forceReconnect = false;
@@ -99,12 +105,16 @@ public class RabbitmqService {
             this.departmentName = settings.getProperty("agent.department.name", "unknown");
             this.hostname = settings.getProperty("agent.hostname", getLocalHostname());
 
+            this.notificationsDisplayMode = settings.getProperty("notifications.display.mode", "window");
+
             System.out.println("✓ Configuração carregada:");
             System.out.println("  - Host: " + host + ":" + port);
             System.out.println("  - Usuário: " + username + " (agent-consumer, read-only)");
             System.out.println("  - Exchange: " + exchangeName);
             System.out.println("  - Departamento: " + departmentName);
             System.out.println("  - Hostname: " + hostname);
+            System.out.println("  - Notificações: "
+                    + ("browser".equalsIgnoreCase(notificationsDisplayMode) ? "Browser" : "Janela padrão"));
 
         } catch (IOException e) {
             System.err.println("✗ Erro ao carregar configurações: " + e.getMessage());
@@ -178,13 +188,46 @@ public class RabbitmqService {
                     return;
                 }
 
-                // Exibe alerta na interface
-                Alert.getInstance().showHtml(message);
+                // Exibe alerta conforme preferência do usuário
+                if (isBrowserNotificationMode()) {
+                    openNotificationInBrowser(message);
+                } else {
+                    Alert.getInstance().showHtml(message);
+                }
 
             } catch (Exception e) {
                 System.err.println("Erro ao processar mensagem: " + e.getMessage());
             }
         };
+    }
+
+    private boolean isBrowserNotificationMode() {
+        return "browser".equalsIgnoreCase(notificationsDisplayMode);
+    }
+
+    private void openNotificationInBrowser(String jsonMessage) {
+        try {
+            br.gov.pb.der.netnotifyagent.dto.Message msg = Functions.jsonToObject(jsonMessage,
+                    br.gov.pb.der.netnotifyagent.dto.Message.class);
+            if (msg == null) {
+                Alert.getInstance().showHtml(jsonMessage);
+                return;
+            }
+
+            String html = Functions.addHtmlTagsToContent(msg);
+            Path tempFile = Files.createTempFile("netnotifyagent-msg-", ".html");
+            Files.writeString(tempFile, html, StandardCharsets.UTF_8);
+
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(tempFile.toUri());
+            } else {
+                System.err.println("Desktop browse not supported; usando janela padrão");
+                Alert.getInstance().showHtml(jsonMessage);
+            }
+        } catch (Exception e) {
+            System.err.println("Erro ao abrir notificação no navegador: " + e.getMessage());
+            Alert.getInstance().showHtml(jsonMessage);
+        }
     }
 
     /**
@@ -361,7 +404,7 @@ public class RabbitmqService {
         while (!shouldStop) {
             // Recriar factory a cada tentativa para pegar configurações atualizadas
             ConnectionFactory factory = createConnectionFactory();
-            
+
             try {
                 status = "Connecting to " + host + ":" + port;
                 System.out.println("→ " + status + "...");
@@ -483,28 +526,30 @@ public class RabbitmqService {
      */
     public void restart() {
         System.out.println("↻ Reiniciando o serviço RabbitMQ com novas configurações...");
-        
+
         // Recarrega configurações primeiro
         loadConfiguration();
-        
+
         // Sinaliza para forçar reconexão
         synchronized (connectionMonitor) {
             this.forceReconnect = true;
             connectionMonitor.notifyAll();
         }
-        
+
         // Aguarda a thread anterior processar o sinal de reconexão
         try {
             Thread.sleep(500);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        
+
         // Reset do flag
         synchronized (connectionMonitor) {
             this.forceReconnect = false;
         }
-    }    /**
+    }
+
+    /**
      * Retorna status atual da conexão
      */
     public String getStatus() {

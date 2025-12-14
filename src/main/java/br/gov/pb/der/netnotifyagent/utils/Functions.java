@@ -1,14 +1,84 @@
 package br.gov.pb.der.netnotifyagent.utils;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Base64;
 import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import br.gov.pb.der.netnotifyagent.dto.Message;
 
 public class Functions {
+
+    public static String addHtmlTagsToContent(Message message) {
+        if (message == null || message.getContent() == null || message.getContent().isEmpty()) {
+            return message != null && message.getContent() != null ? message.getContent() : "";
+        }
+        // Inline remote images before wrapping in HTML tags
+        String processedContent = inlineRemoteImages(message.getContent());
+        StringBuilder sb = new StringBuilder();
+        sb.append("<html><head><meta charset=\"UTF-8\">");
+        sb.append(
+                "<link href=\"https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap\" rel=\"stylesheet\">");
+        sb.append("<style>");
+        sb.append("body { font-family: Arial, sans-serif; margin: 10px; }");
+        sb.append("img { max-width: 100%; height: auto; }");
+        sb.append("</style>");
+        sb.append("</head><body>");
+        sb.append(MessageUtils.formatMessageLevel(message.getLevel(), message.getTitle()));
+        sb.append(processedContent);
+        sb.append("</body></html>");
+        return sb.toString();
+    }
+
+    private static String inlineRemoteImages(String html) {
+        if (html == null || html.isEmpty()) {
+            return html;
+        }
+        Pattern p = Pattern.compile("<img\\s+[^>]*src\\s*=\\s*\"(https?://[^\"\\s>]+)\"[^>]*>",
+                Pattern.CASE_INSENSITIVE);
+        Matcher m = p.matcher(html);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String urlStr = m.group(1);
+            try {
+                URL url = new URL(urlStr);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                conn.setRequestProperty("User-Agent", "NetNotifyAgent/1.0");
+                conn.setInstanceFollowRedirects(true);
+                try (InputStream in = conn.getInputStream(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                    byte[] buf = new byte[8192];
+                    int r;
+                    while ((r = in.read(buf)) != -1) {
+                        out.write(buf, 0, r);
+                    }
+                    byte[] bytes = out.toByteArray();
+                    String contentType = conn.getContentType();
+                    if (contentType == null) {
+                        contentType = "image/png";
+                    }
+                    String base64 = Base64.getEncoder().encodeToString(bytes);
+                    String dataUri = "data:" + contentType + ";base64," + base64;
+                    String originalTag = m.group(0);
+                    String replacement = originalTag.replace(urlStr, dataUri);
+                    m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+                }
+            } catch (IOException ex) {
+                // não conseguiu baixar, deixa a tag original
+                m.appendReplacement(sb, Matcher.quoteReplacement(m.group(0)));
+            }
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
 
     public static Properties loadProperties(String propertiesPath) throws IOException {
         Properties properties = new Properties();

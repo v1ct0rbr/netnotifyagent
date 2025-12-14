@@ -129,6 +129,9 @@ public class NetnotifyagentLauncher {
     }
 
     private static void setupJavaFX() throws Exception {
+        // Adicionar target/classes ao classpath (para desenvolvimento)
+        ensureProjectClassesInPath();
+
         // Encontrar diretório libs PRIMEIRO
         File libsDir = findLibsDirectory();
         if (libsDir == null) {
@@ -151,6 +154,18 @@ public class NetnotifyagentLauncher {
         // Verificar se JavaFX já está disponível
         if (isJavaFXAvailable()) {
             System.out.println("JavaFX já disponível no classpath");
+        }
+    }
+
+    private static void ensureProjectClassesInPath() {
+        // Durante desenvolvimento, as classes estão em target/classes
+        // Procurar por target/classes no diretório de trabalho atual
+        File targetClasses = new File("target/classes");
+        if (targetClasses.exists() && targetClasses.isDirectory()) {
+            System.out.println("target/classes encontrado: " + targetClasses.getAbsolutePath());
+            // As classes já estão no classpath via ClassLoader padrão
+            // Se executado via IDE/Maven, isso já funciona
+            // Se executado direto, é necessário que o classpath esteja configurado
         }
     }
 
