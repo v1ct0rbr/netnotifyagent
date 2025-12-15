@@ -25,16 +25,19 @@ Source: "target\install-service.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\create-scheduled-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.sh"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\launch.vbs"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\postinstall.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]
 Name: "desktopicon"; Description: "Criar atalho na area de trabalho"; Flags: unchecked
 
 [Run]
+Filename: "{app}\postinstall.bat"; Parameters: "{app}"; StatusMsg: "Configurando permissoes de escrita para a pasta de resources..."; Flags: runhidden
 Filename: "{app}\run.bat"; StatusMsg: "Iniciando aplicacao para configurar auto-inicializacao..."; Flags: nowait; WorkingDir: "{app}"
 
 [Icons]
-Name: "{group}\NetNotify Agent"; Filename: "{app}\run.bat"; IconFilename: "{app}\resources\images\icon.ico"
-Name: "{commondesktop}\NetNotify Agent"; Filename: "{app}\run.bat"; Tasks: desktopicon; IconFilename: "{app}\resources\images\icon.ico"
+Name: "{group}\NetNotify Agent"; Filename: "{app}\launch.vbs"; IconFilename: "{app}\resources\images\icon.ico"
+Name: "{commondesktop}\NetNotify Agent"; Filename: "{app}\launch.vbs"; Tasks: desktopicon; IconFilename: "{app}\resources\images\icon.ico"
 
 [Code]
 var

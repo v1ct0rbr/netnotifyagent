@@ -16,8 +16,7 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <javafx.version>20.0.2</javafx.version>
-        <javafx.classifier>win</javafx.classifier>
+        <javafx.platform>win</javafx.platform>
     </properties>
 
     <dependencies>
@@ -35,19 +34,18 @@
             <version>2.15.2</version>
         </dependency>
 
-        <!-- JavaFX -->
-        <!-- Explicitly include base and graphics with platform classifier so natives (.dll) are available at runtime -->
+        <!-- JavaFX - Usando versão 22.0.1 LTS que não tem esse problema de propriedade -->
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-base</artifactId>
-            <version>${javafx.version}</version>
-            <classifier>${javafx.classifier}</classifier>
+            <version>22.0.1</version>
+            <classifier>win</classifier>
         </dependency>
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-graphics</artifactId>
-            <version>${javafx.version}</version>
-            <classifier>${javafx.classifier}</classifier>
+            <version>22.0.1</version>
+            <classifier>win</classifier>
             <exclusions>
                 <exclusion>
                     <groupId>org.openjfx</groupId>
@@ -58,8 +56,8 @@
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-controls</artifactId>
-            <version>${javafx.version}</version>
-            <classifier>${javafx.classifier}</classifier>
+            <version>22.0.1</version>
+            <classifier>win</classifier>
             <exclusions>
                 <exclusion>
                     <groupId>org.openjfx</groupId>
@@ -78,8 +76,8 @@
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-fxml</artifactId>
-            <version>${javafx.version}</version>
-            <classifier>${javafx.classifier}</classifier>
+            <version>22.0.1</version>
+            <classifier>win</classifier>
             <exclusions>
                 <exclusion>
                     <groupId>org.openjfx</groupId>
@@ -98,8 +96,8 @@
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-web</artifactId>
-            <version>${javafx.version}</version>
-            <classifier>${javafx.classifier}</classifier>
+            <version>22.0.1</version>
+            <classifier>win</classifier>
             <exclusions>
                 <exclusion>
                     <groupId>org.openjfx</groupId>
@@ -122,8 +120,8 @@
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-media</artifactId>
-            <version>${javafx.version}</version>
-            <classifier>${javafx.classifier}</classifier>
+            <version>22.0.1</version>
+            <classifier>win</classifier>
             <exclusions>
                 <exclusion>
                     <groupId>org.openjfx</groupId>
@@ -138,8 +136,8 @@
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-swing</artifactId>
-            <version>${javafx.version}</version>
-            <classifier>${javafx.classifier}</classifier>
+            <version>22.0.1</version>
+            <classifier>win</classifier>
             <exclusions>
                 <exclusion>
                     <groupId>org.openjfx</groupId>
@@ -205,6 +203,7 @@
                                         <include>*.bat</include>
                                         <include>*.ps1</include>
                                         <include>*.sh</include>
+                                        <include>*.vbs</include>
                                     </includes>
                                 </resource>
                             </resources>
