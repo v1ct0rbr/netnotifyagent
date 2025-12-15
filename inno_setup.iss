@@ -21,19 +21,21 @@ Source: "target\netnotifyagent-1.0-SNAPSHOT.jar"; DestDir: "{app}"; Flags: ignor
 Source: "target\libs\*"; DestDir: "{app}\libs"; Flags: recursesubdirs ignoreversion createallsubdirs
 Source: "target\resources\images\icon.ico"; DestDir: "{app}\resources\images"; Flags: ignoreversion
 Source: "target\resources\settings.properties"; DestDir: "{app}\resources"; Flags: ignoreversion
-Source: "target\install-service.ps1"; DestDir: "{app}"; Flags: ignoreversion
-Source: "target\create-scheduled-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\install-service.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\uninstall-service.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\launcher.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.sh"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\launch.vbs"; DestDir: "{app}"; Flags: ignoreversion
-Source: "target\postinstall.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]
 Name: "desktopicon"; Description: "Criar atalho na area de trabalho"; Flags: unchecked
 
 [Run]
-Filename: "{app}\postinstall.bat"; Parameters: "{app}"; StatusMsg: "Configurando permissoes de escrita para a pasta de resources..."; Flags: runhidden
-Filename: "{app}\run.bat"; StatusMsg: "Iniciando aplicacao para configurar auto-inicializacao..."; Flags: nowait; WorkingDir: "{app}"
+Filename: "{app}\install-service.bat"; Parameters: "{app} ""{code:GetJavaPath}"""; StatusMsg: "Instalando NetNotify Agent como servico Windows..."; Flags: runhidden waituntilterminated
+
+[UninstallRun]
+Filename: "{app}\uninstall-service.bat"; Parameters: "NetNotifyAgent"; StatusMsg: "Removendo NetNotify Agent dos servicos Windows..."; Flags: runhidden waituntilterminated
 
 [Icons]
 Name: "{group}\NetNotify Agent"; Filename: "{app}\launch.vbs"; IconFilename: "{app}\resources\images\icon.ico"
@@ -44,9 +46,69 @@ var
 	PageRabbit: TInputQueryWizardPage;
 	PageJava: TInputQueryWizardPage;
 	PageAgent: TInputQueryWizardPage;
+	JavaFound: Boolean;
+	JavaVersion: String;
+
+function DetectJavaVersion: String;
+var
+	JavaPath: String;
+	JVersion: String;
+begin
+	{ Tenta detectar Java no registro do Windows }
+	JavaPath := '';
+	if RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\JavaSoft\Java Development Kit', 'CurrentVersion', JVersion) then
+	begin
+		if RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\JavaSoft\Java Development Kit\' + JVersion, 'JavaHome', JavaPath) then
+		begin
+			Result := JavaPath;
+			Exit;
+		end;
+	end;
+	
+	Result := '';
+end;
+
+function GetJavaPath(Param: String): String;
+begin
+	{ Retorna o caminho do Java: preferencia para o fornecido, senao detectado }
+	if PageJava.Values[0] <> '' then
+		Result := PageJava.Values[0]
+	else if JavaFound then
+		Result := JavaVersion
+	else
+		Result := '';
+end;
+
+procedure ValidateJavaPath;
+var
+	Message: String;
+begin
+	{ Valida se o Java foi fornecido quando nao foi detectado }
+	if (not JavaFound) and (PageJava.Values[0] = '') then
+	begin
+		MsgBox('Java 17 ou superior nao foi detectado no sistema.' + #13#10 + #13#10 +
+			'Por favor, forneça o caminho para o Java instalado para continuar.' + #13#10 + #13#10 +
+			'Exemplo: C:\Program Files\Java\jdk-21', 
+			mbError, MB_OK);
+		Abort;
+	end;
+end;
 
 procedure InitializeWizard;
+var
+	JavaPathDetected: String;
 begin
+	{ Detecta se Java ja existe no sistema }
+	JavaPathDetected := DetectJavaVersion;
+	if JavaPathDetected <> '' then
+	begin
+		JavaFound := True;
+		JavaVersion := JavaPathDetected;
+	end else
+	begin
+		JavaFound := False;
+	end;
+
 	{ Aumenta o tamanho da janela do instalador para caber todas as entradas }
 	WizardForm.ClientWidth := ScaleX(900);
 	WizardForm.ClientHeight := ScaleY(640);
@@ -82,13 +144,24 @@ begin
 	PageAgent.Add('Nome do Departamento (agent.department.name):', False);
 	PageAgent.Values[0] := '';
 
-	{ Página de entrada: Configurações de Java (opcional) }
-	PageJava := CreateInputQueryPage(wpSelectDir,
-		'Configuração Java (Opcional)',
-		'Deixe em branco para usar o Java do PATH ou JAVA_HOME',
-		'Digite apenas o caminho raiz da instalação do Java.');
-	PageJava.Add('Caminho da instalação do Java (ex: C:\\Program Files\\Java\\jdk-21):', False);
-	PageJava.Values[0] := '';
+	{ Página de entrada: Configurações de Java }
+	if JavaFound then
+	begin
+		PageJava := CreateInputQueryPage(wpSelectDir,
+			'Configuração Java (Opcional)',
+			'Java ' + JavaVersion + ' foi detectado no sistema',
+			'Deixe em branco para usar o Java detectado ou forneça outro caminho:');
+		PageJava.Add('Caminho da instalação do Java (opcional):', False);
+		PageJava.Values[0] := '';
+	end else
+	begin
+		PageJava := CreateInputQueryPage(wpSelectDir,
+			'Configuração Java (OBRIGATORIA)',
+			'Java nao foi detectado no sistema',
+			'Digite o caminho raiz da instalação do Java (ex: C:\Program Files\Java\jdk-21):');
+		PageJava.Add('Caminho da instalação do Java:', False);
+		PageJava.Values[0] := '';
+	end;
 end;
 
 procedure WriteSettingsFile;
@@ -117,7 +190,7 @@ begin
 		SettingsContent := SettingsContent + '# agent.department.name=' + CRLF;
 
 	SettingsContent := SettingsContent + CRLF;
-	SettingsContent := SettingsContent + '# ===== JAVA RUNTIME OPCIONAL =====' + CRLF;
+	SettingsContent := SettingsContent + '# ===== JAVA RUNTIME =====' + CRLF;
 	SettingsContent := SettingsContent + '# Defina o caminho raiz para a instalacao do Java.' + CRLF;
 	SettingsContent := SettingsContent + '# Caso nao definido, o launcher usara JAVA_HOME ou o java do PATH.' + CRLF;
 
@@ -145,4 +218,12 @@ begin
 	{ Grava o arquivo depois da instalação dos arquivos }
 	if CurStep = ssPostInstall then
 		WriteSettingsFile;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+	Result := True;
+	{ Validar página do Java antes de prosseguir }
+	if CurPageID = PageJava.ID then
+		ValidateJavaPath;
 end;
