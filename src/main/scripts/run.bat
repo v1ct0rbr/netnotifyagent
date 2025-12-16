@@ -90,13 +90,8 @@ if not exist "!LIBS_DIR!" (
 )
 
 rem executar sem usar wildcards na variavel
-"!JAVA_EXE!" --module-path "!LIBS_DIR!" --add-modules javafx.controls,javafx.web -cp "!JAR_FILE!;!LIBS_DIR!\*" br.gov.pb.der.netnotifyagent.NetnotifyagentLauncher
+start "" "!JAVA_EXE!" --module-path "!LIBS_DIR!" --add-modules javafx.controls,javafx.web -cp "!JAR_FILE!;!LIBS_DIR!\*" br.gov.pb.der.netnotifyagent.NetnotifyagentLauncher
 
-if !errorlevel! neq 0 (
-    echo [ERRO] A aplicacao foi encerrada com erro codigo !errorlevel!
-    pause
-)
-
-exit /b !errorlevel!
+exit /b 0
 
 

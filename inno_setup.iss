@@ -25,13 +25,17 @@ Source: "target\install-service.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\uninstall-service.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.sh"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\postinstall.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 
 [Tasks]
 Name: "desktopicon"; Description: "Criar atalho na area de trabalho"; Flags: unchecked
+Name: "runapp"; Description: "Executar NetNotify Agent apos a instalacao"; Flags: unchecked
 
 [Run]
+Filename: "{app}\postinstall.bat"; Parameters: "{app}"; StatusMsg: "Finalizando instalacao..."; Flags: runhidden waituntilterminated
 Filename: "{app}\install-service.bat"; Parameters: "{app} ""{code:GetJavaPath}"""; StatusMsg: "Instalando NetNotify Agent como servico Windows..."; Flags: runhidden waituntilterminated
+Filename: "{app}\run.bat"; Description: "Executar NetNotify Agent"; StatusMsg: "Iniciando NetNotify Agent..."; Flags: postinstall nowait skipifsilent; Tasks: runapp
 
 [UninstallRun]
 Filename: "{app}\uninstall-service.bat"; Parameters: "NetNotifyAgent"; StatusMsg: "Removendo NetNotify Agent dos servicos Windows..."; Flags: runhidden waituntilterminated
@@ -195,6 +199,12 @@ begin
 		SettingsContent := SettingsContent + 'java.home=' + PageJava.Values[0] + CRLF
 	else
 		SettingsContent := SettingsContent + '# java.home=' + CRLF;
+
+	SettingsContent := SettingsContent + CRLF;
+	SettingsContent := SettingsContent + '# ===== CAMINHO DE INSTALACAO =====' + CRLF;
+	SettingsContent := SettingsContent + '# Caminho onde a aplicacao esta instalada.' + CRLF;
+	SettingsContent := SettingsContent + '# Usado pelos scripts de instalacao e pos-instalacao como fallback.' + CRLF;
+	SettingsContent := SettingsContent + 'install.path=' + ExpandConstant('{app}') + CRLF;
 
 	SettingsContent := SettingsContent + CRLF;
 	SettingsContent := SettingsContent + '# ===== CONFIGURACOES DE FILTRO DE MENSAGENS =====' + CRLF;
