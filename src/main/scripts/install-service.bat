@@ -28,33 +28,19 @@ if %errorlevel% neq 0 (
 
 REM Obtem parametros - se nao fornecido, tenta ler do settings.properties
 if "%~1"=="" (
-    set "SCRIPT_DIR=%~dp0"
+    REM Usar diretório atual
+    cd /d "%cd%"
+    set "INSTALL_PATH=%cd%"
     
-    REM Se %~dp0 está vazio, usar %cd% (diretório atual)
-    if "!SCRIPT_DIR!"=="" (
-        set "SCRIPT_DIR=%cd%"
-    )
-    
-    REM Garantir que termina com barra
-    if not "!SCRIPT_DIR:~-1!"=="\" set "SCRIPT_DIR=!SCRIPT_DIR!\"
-    
-    REM Tentar ler do settings.properties
-    set "SETTINGS_FILE=!SCRIPT_DIR!resources\settings.properties"
-    if exist "!SETTINGS_FILE!" (
-        for /f "usebackq eol=# tokens=1,* delims==" %%A in ("!SETTINGS_FILE!") do (
+    REM Tentar ler do settings.properties no diretório atual
+    if exist "%INSTALL_PATH%\resources\settings.properties" (
+        for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%INSTALL_PATH%\resources\settings.properties") do (
             set "KEY=%%~A"
             set "VAL=%%~B"
             if /I "!KEY!"=="install.path" (
                 if not "!VAL!"=="" set "INSTALL_PATH=!VAL!"
             )
         )
-    )
-    
-    REM Se não conseguiu ler do settings, usar o diretório atual
-    if "!INSTALL_PATH!"=="" (
-        set "INSTALL_PATH=!SCRIPT_DIR!"
-        REM Remove barra final se existir
-        if "!INSTALL_PATH:~-1!"=="\" set "INSTALL_PATH=!INSTALL_PATH:~0,-1!"
     )
 ) else (
     set "INSTALL_PATH=%~1"
@@ -64,24 +50,36 @@ set "PROVIDED_JAVA=%~2"
 set "SERVICE_NAME=NetNotifyAgent"
 set "DISPLAY_NAME=NetNotify Agent"
 
+REM Garantir que INSTALL_PATH foi definido corretamente
+if "!INSTALL_PATH!"=="" (
+    echo Erro: Caminho de instalacao nao foi definido corretamente
+    pause
+    exit /b 1
+)
+
 echo Caminho de instalacao: !INSTALL_PATH!
 echo.
 
 REM Verifica se o JAR existe
 if not exist "!INSTALL_PATH!\netnotifyagent-1.0-SNAPSHOT.jar" (
     echo Erro: JAR nao encontrado em !INSTALL_PATH!
+    echo.
+    echo Arquivos encontrados em !INSTALL_PATH!:
+    dir "!INSTALL_PATH!" /B
+    pause
     exit /b 1
 )
 
 REM Verifica se a pasta libs existe
 if not exist "!INSTALL_PATH!\libs" (
     echo Erro: Pasta libs nao encontrada em !INSTALL_PATH!
+    pause
     exit /b 1
 )
 
 echo.
 echo ======================================
-echo Instalando %DISPLAY_NAME%
+echo Instalando !DISPLAY_NAME!
 echo ======================================
 echo.
 
@@ -142,51 +140,98 @@ if not defined JAVA_EXE (
 echo Java encontrado: !JAVA_EXE!
 echo.
 
-REM ===== USAR LAUNCHER WRAPPER =====
-set "LAUNCHER=!INSTALL_PATH!\run.bat"
+REM ===== CONFIGURAR PARAMETROS DO SERVICO =====
+set "JAR_FILE=!INSTALL_PATH!\netnotifyagent-1.0-SNAPSHOT.jar"
+set "LIBS_DIR=!INSTALL_PATH!\libs"
 
-REM Verificar se o launcher existe
-if not exist "!LAUNCHER!" (
-    echo Erro: run.bat nao encontrado em !INSTALL_PATH!
-    echo Copie o arquivo run.bat para o diretorio de instalacao
+REM Verificar arquivos necessarios
+if not exist "!JAR_FILE!" (
+    echo Erro: JAR nao encontrado em !INSTALL_PATH!
+    pause
     exit /b 1
 )
 
-echo Criando servico: %SERVICE_NAME%
+if not exist "!LIBS_DIR!" (
+    echo Erro: Libs nao encontrado em !INSTALL_PATH!
+    pause
+    exit /b 1
+)
+
+echo Criando servico: !SERVICE_NAME!
 echo Diretorio: !INSTALL_PATH!
 echo Java: !JAVA_EXE!
 echo.
 
 REM ===== CRIAR O SERVICO =====
-REM Usar cmd.exe para executar o script batch, pois servicos Windows nao conseguem rodar .bat diretamente
-sc.exe create %SERVICE_NAME% binPath= "cmd /c \"!LAUNCHER!\"" displayName= "%DISPLAY_NAME%" start= auto type= own error= critical
+REM Executar Java diretamente para evitar erro 1053
+REM Usar javaw.exe para modo console-less (melhor para servicos)
+set "JAVA_CMD=!JAVA_EXE!"
+REM Se encontramos java.exe, tentar usar javaw.exe em preferencia
+if "!JAVA_CMD:java.exe=!"  neq "!JAVA_CMD!" (
+    set "JAVA_PARENT_DIR=!JAVA_EXE:\java.exe=!"
+    if exist "!JAVA_PARENT_DIR!\javaw.exe" (
+        set "JAVA_CMD=!JAVA_PARENT_DIR!\javaw.exe"
+    )
+)
 
-if %errorlevel% neq 0 (
-    echo Erro ao criar o servico (codigo %errorlevel%)
+REM Construir o comando completo para o serviço
+set "JAVA_ARGS=--module-path \"!LIBS_DIR!\" --add-modules javafx.controls,javafx.web -cp \"!JAR_FILE!;!LIBS_DIR!\*\" br.gov.pb.der.netnotifyagent.NetnotifyagentLauncher"
+set "SERVICE_BINPATH=!JAVA_CMD! !JAVA_ARGS!"
+
+REM Criar o serviço com o comando Java direto
+sc.exe create !SERVICE_NAME! binPath= "!SERVICE_BINPATH!" displayName= "!DISPLAY_NAME!" start= auto type= own error= critical
+
+if !errorlevel! neq 0 (
+    echo Erro ao criar o servico (codigo !errorlevel!)
+    pause
     exit /b 1
 )
 
 echo OK: Servico criado com sucesso!
 
 REM Configurar descricao
-sc.exe description %SERVICE_NAME% "Agent para receber notificacoes via RabbitMQ com interface JavaFX"
+sc.exe description !SERVICE_NAME! "Agent para receber notificacoes via RabbitMQ com interface JavaFX"
+
+REM Configurar timeout de inicializacao (em milisegundos)
+REM Windows pode precisar de mais tempo para carregar Java
+reg.exe add "HKLM\SYSTEM\CurrentControlSet\Services\!SERVICE_NAME!" /v ServicesPipeTimeout /t REG_DWORD /d 180000 /f >nul 2>&1
 
 REM Configurar recuperacao (reiniciar em caso de falha)
-sc.exe failure %SERVICE_NAME% reset= 86400 actions= restart/30000/restart/30000/restart/30000
+sc.exe failure !SERVICE_NAME! reset= 86400 actions= restart/30000/restart/30000/restart/30000
+
+REM Configurar prioridade
+REM wmic Service where name="!SERVICE_NAME!" call setpriority 32 >nul 2>&1
 
 REM ===== INICIAR O SERVICO =====
 echo.
-echo Iniciando servico...
-net start %SERVICE_NAME%
+echo Inicializando servico (aguarde até 3 minutos)...
+timeout /t 2 /nobreak >nul 2>&1
 
-if %errorlevel% equ 0 (
+net start !SERVICE_NAME!
+
+if !errorlevel! equ 0 (
+    echo.
     echo OK: Servico iniciado com sucesso!
     echo.
     echo ======================================
     echo Instalacao concluida!
     echo ======================================
+    pause
+    exit /b 0
+) else if !errorlevel! equ 1056 (
+    echo.
+    echo OK: Servico ja estava em execucao
+    echo.
+    echo ======================================
+    echo Instalacao concluida!
+    echo ======================================
+    pause
     exit /b 0
 ) else (
+    echo.
     echo Aviso: Servico foi criado mas pode estar com problemas ao iniciar
-    exit /b 0
+    echo Verifique o Event Viewer para mais detalhes
+    echo Codigo de erro: !errorlevel!
+    pause
+    exit /b 1
 )
