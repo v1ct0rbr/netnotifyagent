@@ -23,10 +23,9 @@ Source: "target\resources\images\icon.ico"; DestDir: "{app}\resources\images"; F
 Source: "target\resources\settings.properties"; DestDir: "{app}\resources"; Flags: ignoreversion
 Source: "target\install-service.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\uninstall-service.bat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "target\launcher.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.sh"; DestDir: "{app}"; Flags: ignoreversion
-Source: "target\launch.vbs"; DestDir: "{app}"; Flags: ignoreversion
+
 
 [Tasks]
 Name: "desktopicon"; Description: "Criar atalho na area de trabalho"; Flags: unchecked
@@ -37,9 +36,7 @@ Filename: "{app}\install-service.bat"; Parameters: "{app} ""{code:GetJavaPath}""
 [UninstallRun]
 Filename: "{app}\uninstall-service.bat"; Parameters: "NetNotifyAgent"; StatusMsg: "Removendo NetNotify Agent dos servicos Windows..."; Flags: runhidden waituntilterminated
 
-[Icons]
-Name: "{group}\NetNotify Agent"; Filename: "{app}\launch.vbs"; IconFilename: "{app}\resources\images\icon.ico"
-Name: "{commondesktop}\NetNotify Agent"; Filename: "{app}\launch.vbs"; Tasks: desktopicon; IconFilename: "{app}\resources\images\icon.ico"
+
 
 [Code]
 var

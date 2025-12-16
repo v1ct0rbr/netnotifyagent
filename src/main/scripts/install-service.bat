@@ -70,12 +70,12 @@ if %errorlevel% equ 0 (
 )
 
 REM ===== USAR LAUNCHER WRAPPER =====
-set "LAUNCHER=%INSTALL_PATH%\launcher.bat"
+set "LAUNCHER=%INSTALL_PATH%\run.bat"
 
 REM Verificar se o launcher existe
 if not exist "%LAUNCHER%" (
-    echo Erro: launcher.bat nao encontrado em %INSTALL_PATH%
-    echo Copie o arquivo launcher.bat para o diretorio de instalacao
+    echo Erro: run.bat nao encontrado em %INSTALL_PATH%
+    echo Copie o arquivo run.bat para o diretorio de instalacao
     exit /b 1
 )
 
