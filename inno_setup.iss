@@ -22,7 +22,9 @@ Source: "target\libs\*"; DestDir: "{app}\libs"; Flags: recursesubdirs ignorevers
 Source: "target\resources\images\icon.ico"; DestDir: "{app}\resources\images"; Flags: ignoreversion
 Source: "target\resources\settings.properties"; DestDir: "{app}\resources"; Flags: ignoreversion
 Source: "target\install-service.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\install-service.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\uninstall-service.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\uninstall-service.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.sh"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\postinstall.bat"; DestDir: "{app}"; Flags: ignoreversion
@@ -33,12 +35,12 @@ Name: "desktopicon"; Description: "Criar atalho na area de trabalho"; Flags: unc
 Name: "runapp"; Description: "Executar NetNotify Agent apos a instalacao"; Flags: unchecked
 
 [Run]
-Filename: "{app}\postinstall.bat"; Parameters: "{app}"; StatusMsg: "Finalizando instalacao..."; Flags: runhidden waituntilterminated
-Filename: "{app}\install-service.bat"; Parameters: "{app} ""{code:GetJavaPath}"""; StatusMsg: "Instalando NetNotify Agent como servico Windows..."; Flags: runhidden waituntilterminated
+Filename: "{app}\postinstall.bat"; Parameters: "{app}"; StatusMsg: "Finalizando instalacao..."; Flags: runhidden nowait
+Filename: "{app}\install-service.bat"; Parameters: """{app}"" ""{code:GetJavaPath}"""; StatusMsg: "Instalando NetNotify Agent como servico Windows..."; Flags: runhidden waituntilterminated
 Filename: "{app}\run.bat"; Description: "Executar NetNotify Agent"; StatusMsg: "Iniciando NetNotify Agent..."; Flags: postinstall nowait skipifsilent; Tasks: runapp
 
 [UninstallRun]
-Filename: "{app}\uninstall-service.bat"; Parameters: "NetNotifyAgent"; StatusMsg: "Removendo NetNotify Agent dos servicos Windows..."; Flags: runhidden waituntilterminated
+Filename: "{app}\uninstall-service.bat"; Parameters: "NetNotifyAgent"; StatusMsg: "Removendo NetNotify Agent dos servicos Windows..."; Flags: runhidden nowait
 
 
 
