@@ -16,6 +16,9 @@ ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 UsePreviousAppDir=yes
 
+[Dirs]
+Name: "{app}\resources"; Permissions: users-modify
+
 [Files]
 Source: "target\netnotifyagent-1.0-SNAPSHOT.jar"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\libs\*"; DestDir: "{app}\libs"; Flags: recursesubdirs ignoreversion createallsubdirs
@@ -27,16 +30,20 @@ Source: "target\uninstall-service.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\uninstall-service.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.sh"; DestDir: "{app}"; Flags: ignoreversion
-Source: "target\postinstall.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\refresh-user-tasks.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\run-refresh-user-tasks.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 
 [Tasks]
 Name: "desktopicon"; Description: "Criar atalho na area de trabalho"; Flags: unchecked
 Name: "runapp"; Description: "Executar NetNotify Agent apos a instalacao"; Flags: unchecked
 
+[Icons]
+Name: "{group}\{#AppName}"; Filename: "{app}\run.bat"; WorkingDir: "{app}"; IconFilename: "{app}\resources\images\icon.ico"
+Name: "{commondesktop}\{#AppName}"; Filename: "{app}\run.bat"; WorkingDir: "{app}"; IconFilename: "{app}\resources\images\icon.ico"; Tasks: desktopicon
+
 [Run]
-Filename: "{app}\postinstall.bat"; Parameters: "{app}"; StatusMsg: "Finalizando instalacao..."; Flags: runhidden nowait
-Filename: "{app}\install-service.bat"; Parameters: """{app}"" ""{code:GetJavaPath}"""; StatusMsg: "Instalando NetNotify Agent como servico Windows..."; Flags: runhidden waituntilterminated
+Filename: "{app}\install-service.bat"; Parameters: """{app}"" ""{code:GetJavaPath}"""; StatusMsg: "Configurando tarefas agendadas do NetNotify Agent..."; Flags: runhidden waituntilterminated
 Filename: "{app}\run.bat"; Description: "Executar NetNotify Agent"; StatusMsg: "Iniciando NetNotify Agent..."; Flags: postinstall nowait skipifsilent; Tasks: runapp
 
 [UninstallRun]

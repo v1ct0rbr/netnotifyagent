@@ -4,7 +4,12 @@ setlocal EnableDelayedExpansion
 rem entrar no diretório do script
 cd /d "%~dp0"
 set "BASE_DIR=%CD%"
-set "JAR_FILE=%BASE_DIR%\${project.artifactId}-${project.version}.jar"
+set "JAR_FILE="
+for %%F in ("%BASE_DIR%\netnotifyagent-*.jar") do (
+    set "JAR_FILE=%%~fF"
+    goto :afterJarSearch
+)
+:afterJarSearch
 set "LIBS_DIR=%BASE_DIR%\libs"
 set "SETTINGS_FILE=%BASE_DIR%\resources\settings.properties"
 
@@ -73,7 +78,7 @@ pause
 exit /b 1
 
 :execute
-if not exist "!JAR_FILE!" (
+if not defined JAR_FILE if not exist "!JAR_FILE!" (
     echo [ERRO] Arquivo principal nao encontrado
     echo Procurando: !JAR_FILE!
     echo.

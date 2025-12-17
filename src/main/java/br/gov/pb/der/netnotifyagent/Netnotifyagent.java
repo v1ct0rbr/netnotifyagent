@@ -7,6 +7,7 @@ import java.awt.AWTException;
 
 import br.gov.pb.der.netnotifyagent.service.RabbitmqService;
 import br.gov.pb.der.netnotifyagent.ui.TrayService;
+import br.gov.pb.der.netnotifyagent.utils.SingleInstanceLock;
 
 /**
  *
@@ -17,6 +18,11 @@ public class Netnotifyagent {
     private static RabbitmqService rabbitmqService;
 
     public static void main(String[] args) {
+        if (!SingleInstanceLock.acquire()) {
+            System.out.println("NetNotify Agent ja está em execução. Encerrando.");
+            return;
+        }
+
         System.out.println("Iniciando NetNotify Agent...");
 
         try {

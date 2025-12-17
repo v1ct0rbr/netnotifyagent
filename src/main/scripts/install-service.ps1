@@ -3,7 +3,8 @@
 
 param(
     [string]$InstallPath = (Get-Location).Path,
-    [string]$JavaPath = ""
+    [string]$JavaPath = "",
+    [switch]$Pause
 )
 
 Set-StrictMode -Version Latest
@@ -31,6 +32,31 @@ function Resolve-AbsolutePath {
     }
 }
 
+function Get-JavaHomeFromSettings {
+    param([string]$BasePath)
+
+    $settingsFile = Join-Path $BasePath 'resources\settings.properties'
+    if (-not (Test-Path $settingsFile -PathType Leaf)) {
+        return $null
+    }
+
+    $javaHome = $null
+    foreach ($line in Get-Content -LiteralPath $settingsFile -ErrorAction SilentlyContinue) {
+        if (-not $line) { continue }
+        $line = $line.Trim()
+        if ($line.StartsWith('#')) { continue }
+        if ($line.StartsWith('java.home=')) {
+            $value = $line.Substring('java.home='.Length).Trim()
+            if ($value) {
+                $javaHome = $value
+            }
+            break
+        }
+    }
+
+    return $javaHome
+}
+
 function Get-AgentJar {
     param([string]$BasePath)
     $pattern = Join-Path $BasePath 'netnotifyagent-*.jar'
@@ -48,11 +74,21 @@ function Resolve-JavaExecutable {
     param([string]$JavaPath)
     $candidates = @()
     if ($JavaPath) {
-        $candidates += Join-Path $JavaPath 'bin\java.exe'
+        # Se for um caminho completo para o executável, use diretamente
         $candidates += $JavaPath
+        # Se for um diretório de instalação, tente compor bin\java.exe de forma segura
+        try {
+            $candidates += (Join-Path -Path $JavaPath -ChildPath 'bin\java.exe' -ErrorAction Stop)
+        } catch {
+            # Caminho inválido (por exemplo, unidade inexistente); ignora e segue para próximos candidatos
+        }
     }
     if ($env:JAVA_HOME) {
-        $candidates += Join-Path $env:JAVA_HOME 'bin\java.exe'
+        try {
+            $candidates += (Join-Path -Path $env:JAVA_HOME -ChildPath 'bin\java.exe' -ErrorAction Stop)
+        } catch {
+            # Ignora erros de unidade inexistente ou caminho inválido
+        }
     }
     $command = Get-Command java.exe -ErrorAction SilentlyContinue
     if ($command) {
@@ -98,7 +134,10 @@ function Get-InteractiveUsernames {
         if ($line -match '^\s*USERNAME') { continue }
         $parts = $line -split '\s+' | Where-Object { $_ -ne '' }
         if ($parts.Count -ge 1) {
-            $users += $parts[0]
+            $userName = $parts[0].TrimStart('>')
+            if ($userName) {
+                $users += $userName
+            }
         }
     }
 
@@ -114,33 +153,77 @@ function Ensure-ScheduledTaskForUsers {
         [string]$ServiceBat
     )
 
+    Import-Module ScheduledTasks -ErrorAction Stop
+
     $users = Get-InteractiveUsernames
     $computer = $env:COMPUTERNAME
 
     foreach ($user in $users) {
         $sanitized = ($user -replace '[^A-Za-z0-9]', '_')
         $taskName = "NetNotifyAgent-$sanitized"
-        Write-Host "Configurando tarefa agendada para $user (tarefa: $taskName)..."
+        Write-Host "Configurando tarefa agendada para $($user) (tarefa: $taskName)..."
         Try {
-            Start-Process schtasks.exe -ArgumentList '/Delete','/TN',$taskName,'/F' -NoNewWindow -Wait -ErrorAction SilentlyContinue | Out-Null
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
         } catch {
             # ignore
         }
-        $arguments = @(
-            '/Create',
-            '/SC', 'ONLOGON',
-            '/RL', 'HIGHEST',
-            '/F',
-            '/TN', $taskName,
-            '/TR', "`"$ServiceBat`"",
-            '/RU', "$computer\$user"
-        )
         try {
-            Start-Process schtasks.exe -ArgumentList $arguments -NoNewWindow -Wait -ErrorAction Stop | Out-Null
-            Write-Host "Tarefa $taskName criada para $user"
+            $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ServiceBat`""
+            $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$($computer)\$user"
+            $principal = New-ScheduledTaskPrincipal -UserId "$($computer)\$user" -RunLevel Highest -LogonType Interactive
+            Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+            Write-Host ('Tarefa {0} criada para {1}' -f $taskName, $user)
         } catch {
-            Write-Host "Falha ao criar tarefa para $user: $($_.Exception.Message)"
+            Write-Host "Falha ao criar tarefa para $($user): $($_.Exception.Message)"
         }
+    }
+}
+
+function Ensure-PeriodicRefreshTask {
+    param(
+        [string]$InstallPath
+    )
+
+    $taskName = 'NetNotifyAgent-RefreshUserTasks'
+    $refreshScript = Join-Path $InstallPath 'refresh-user-tasks.ps1'
+    $refreshRunner = Join-Path $InstallPath 'run-refresh-user-tasks.bat'
+
+    if (-not (Test-Path $refreshScript -PathType Leaf)) {
+        Write-Host "Script de atualização de tarefas de usuário não encontrado em $refreshScript. Ignorando criação da tarefa periódica."
+        return
+    }
+
+    if (-not (Test-Path $refreshRunner -PathType Leaf)) {
+        Write-Host "Wrapper run-refresh-user-tasks.bat não encontrado em $refreshRunner. Ignorando criação da tarefa periódica."
+        return
+    }
+
+    Write-Host "Configurando tarefa agendada periódica ($taskName) para atualizar tarefas de logon dos usuários..."
+
+    try {
+        schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
+    } catch {
+        # ignore
+    }
+
+    $tr = "`"$refreshRunner`""
+
+    $arguments = @(
+        '/Create',
+        '/SC','MINUTE',
+        '/MO','10',
+        '/RL','HIGHEST',
+        '/RU','SYSTEM',
+        '/F',
+        '/TN',$taskName,
+        '/TR',$tr
+    )
+
+    try {
+        schtasks.exe @arguments | Out-Null
+        Write-Host "Tarefa periódica $taskName criada/atualizada com sucesso."
+    } catch {
+        Write-Host "Falha ao criar tarefa periódica ${taskName}: $($_.Exception.Message)"
     }
 }
 
@@ -151,7 +234,13 @@ function Ensure-Administrator {
     }
     Write-Host "Este script requer privilégios de administrador."
     Write-Host "Reabrindo com privilégios elevados..."
-    Start-Process PowerShell -ArgumentList "-ExecutionPolicy Bypass -File `"$PSCommandPath`" `"$InstallPath`" `"$JavaPath`"" -Verb RunAs
+
+    $args = @('-ExecutionPolicy','Bypass','-File',"`"$PSCommandPath`"", "`"$InstallPath`"", "`"$JavaPath`"")
+    if ($Pause) {
+        $args += '-Pause'
+    }
+
+    Start-Process PowerShell -ArgumentList $args -Verb RunAs
     exit 0
 }
 
@@ -169,7 +258,6 @@ if ($JarFile) {
     $JarFile = Resolve-AbsolutePath $JarFile
 }
 $LibsDir = Join-Path $InstallPath 'libs'
-$ServiceBat = Join-Path $InstallPath 'run-service.bat'
 
 Write-Host "Instalando $DisplayName em: $InstallPath"
 if (-not $JarFile) {
@@ -179,64 +267,32 @@ if (-not (Test-Path $LibsDir)) {
     Throw-Error "Erro: diretório libs não encontrado em $InstallPath"
 }
 
-$JavaExe = Resolve-JavaExecutable -JavaPath $JavaPath
-if (-not $JavaExe) {
-    Throw-Error 'Erro: Java não encontrado. Defina JAVA_HOME ou informe o caminho do Java.'
-}
-Write-Host "Java localizado em: $JavaExe"
-
 $ResourcesPath = Join-Path $InstallPath 'resources'
 if (Test-Path $ResourcesPath) {
     Write-Host 'Aplicando permissões na pasta resources...'
-    icacls "$ResourcesPath" /grant 'Users:(OI)(CI)M' /T /C | Out-Null
+    icacls "$ResourcesPath" /grant "*S-1-5-32-545:(OI)(CI)M" /T /C | Out-Null
 }
 
 Write-Host 'Verificando e removendo serviço existente (caso exista)...'
 Remove-ServiceIfExists -ServiceName $ServiceName
 
-Write-Host 'Preparando diretório de logs...'
-$LogDir = Join-Path $InstallPath 'logs'
-New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-$LogFile = Join-Path $LogDir 'service.log'
-
-Write-Host 'Gerando script run-service.bat...'
-$ServiceBatContent = @"
-@echo off
-setlocal EnableDelayedExpansion
-set "JAVA_EXE=$JavaExe"
-set "INSTALL_PATH=$InstallPath"
-set "JAR_FILE=$JarFile"
-set "LIBS_DIR=$LibsDir"
-set "LOG_FILE=$LogFile"
-
-if not exist "!JAR_FILE!" exit /b 1
-if not exist "!LIBS_DIR!" exit /b 1
-
-"!JAVA_EXE!" --module-path "!LIBS_DIR!" --add-modules javafx.controls,javafx.web -cp "!JAR_FILE!;!LIBS_DIR!\*" br.gov.pb.der.netnotifyagent.NetnotifyagentLauncher >> "!LOG_FILE!" 2>&1
-"@
-
-$ServiceBatContent | Out-File -FilePath $ServiceBat -Encoding ASCII -Force
+$RunBat = Join-Path $InstallPath 'run.bat'
+if (-not (Test-Path $RunBat -PathType Leaf)) {
+    Throw-Error "Erro: script run.bat não encontrado em $InstallPath"
+}
 
 Write-Host 'Garantindo tarefas agendadas para usuários logados...'
-Ensure-ScheduledTaskForUsers -ServiceBat $ServiceBat
+Ensure-ScheduledTaskForUsers -ServiceBat $RunBat
 
-Write-Host 'Criando serviço Windows...'
-$binaryPath = "cmd.exe /c `"$ServiceBat`""
-New-Service -Name $ServiceName `
-    -DisplayName $DisplayName `
-    -BinaryPathName $binaryPath `
-    -StartupType Automatic `
-    -ErrorAction Stop | Out-Null
-
-Write-Host 'Serviço criado com sucesso.'
-Write-Host 'Configurando timeout de inicialização...'
-reg.exe add "HKLM\SYSTEM\CurrentControlSet\Services\$ServiceName" /v ServicesPipeTimeout /t REG_DWORD /d 300000 /f | Out-Null
-Write-Host 'Adicionando descrição...'
-sc.exe description $ServiceName 'Agent para receber notificações via RabbitMQ com interface JavaFX' | Out-Null
-Write-Host 'Configurando política de recuperação...'
-sc.exe failure $ServiceName reset= 86400 actions= restart/60000 | Out-Null
-
+Write-Host 'Configurando tarefa periódica para atualização de tarefas de usuário...'
+Ensure-PeriodicRefreshTask -InstallPath $InstallPath
 Write-Host ''
-Write-Host 'Instalação concluída. O serviço NetNotifyAgent está configurado e será iniciado automaticamente na próxima reinicialização.'
-Write-Host 'Para iniciar imediatamente, execute: Start-Service -Name NetNotifyAgent'
+Write-Host 'Instalação concluída.'
+Write-Host 'As tarefas agendadas do NetNotify Agent foram configuradas.'
+Write-Host 'O agente será executado automaticamente no logon dos usuários configurados.'
+if ($Pause) {
+    Write-Host ''
+    Read-Host 'Pressione Enter para sair...'
+}
+
 exit 0
