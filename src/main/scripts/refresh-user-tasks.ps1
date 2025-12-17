@@ -73,12 +73,17 @@ function Ensure-ScheduledTaskForUsers {
     Import-Module ScheduledTasks -ErrorAction Stop
 
     $users = Get-InteractiveUsernames
-    $computer = $env:COMPUTERNAME
 
     foreach ($user in $users) {
         $sanitized = ($user -replace '[^A-Za-z0-9]', '_')
         $taskName = "NetNotifyAgent-$sanitized"
-        Write-Host "Verificando tarefa agendada para $($user) (tarefa: $taskName)..."
+
+        # Usa o valor retornado pelo quser como identificador de conta.
+        # Se vier "DOMINIO\\usuario", o Windows resolve para esse usuário de domínio.
+        # Se vier apenas "usuario", o Windows resolve para o usuário local ou de domínio atual.
+        $account = $user
+
+        Write-Host "Verificando tarefa agendada para $($user) (tarefa: $taskName, conta: $account)..."
         try {
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
         } catch {
@@ -86,12 +91,12 @@ function Ensure-ScheduledTaskForUsers {
         }
         try {
             $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ServiceBat`""
-            $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$($computer)\$user"
-            $principal = New-ScheduledTaskPrincipal -UserId "$($computer)\$user" -RunLevel Highest -LogonType Interactive
+            $trigger = New-ScheduledTaskTrigger -AtLogOn -User $account
+            $principal = New-ScheduledTaskPrincipal -UserId $account -RunLevel Highest -LogonType Interactive
             Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
-            Write-Host "Tarefa $taskName criada/atualizada para $($user)"
+            Write-Host "Tarefa $taskName criada/atualizada para $($user) (conta: $account)"
         } catch {
-            Write-Host "Falha ao criar tarefa para $($user): $($_.Exception | Select-Object -ExpandProperty Message)"
+            Write-Host "Falha ao criar tarefa para $($user) (conta: $account): $($_.Exception | Select-Object -ExpandProperty Message)"
         }
     }
 }

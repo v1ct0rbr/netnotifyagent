@@ -156,12 +156,17 @@ function Ensure-ScheduledTaskForUsers {
     Import-Module ScheduledTasks -ErrorAction Stop
 
     $users = Get-InteractiveUsernames
-    $computer = $env:COMPUTERNAME
 
     foreach ($user in $users) {
         $sanitized = ($user -replace '[^A-Za-z0-9]', '_')
         $taskName = "NetNotifyAgent-$sanitized"
-        Write-Host "Configurando tarefa agendada para $($user) (tarefa: $taskName)..."
+
+        # Usa o valor retornado pelo quser como identificador de conta.
+        # Se vier "DOMINIO\\usuario", o Windows resolve para esse usuário de domínio.
+        # Se vier apenas "usuario", o Windows resolve para o usuário local ou de domínio atual.
+        $account = $user
+
+        Write-Host "Configurando tarefa agendada para $($user) (tarefa: $taskName, conta: $account)..."
         Try {
             Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
         } catch {
@@ -169,12 +174,12 @@ function Ensure-ScheduledTaskForUsers {
         }
         try {
             $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ServiceBat`""
-            $trigger = New-ScheduledTaskTrigger -AtLogOn -User "$($computer)\$user"
-            $principal = New-ScheduledTaskPrincipal -UserId "$($computer)\$user" -RunLevel Highest -LogonType Interactive
+            $trigger = New-ScheduledTaskTrigger -AtLogOn -User $account
+            $principal = New-ScheduledTaskPrincipal -UserId $account -RunLevel Highest -LogonType Interactive
             Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
-            Write-Host ('Tarefa {0} criada para {1}' -f $taskName, $user)
+            Write-Host ('Tarefa {0} criada para {1} (conta: {2})' -f $taskName, $user, $account)
         } catch {
-            Write-Host "Falha ao criar tarefa para $($user): $($_.Exception.Message)"
+            Write-Host "Falha ao criar tarefa para $($user) (conta: $account): $($_.Exception.Message)"
         }
     }
 }
@@ -201,53 +206,47 @@ function Ensure-PeriodicRefreshTask {
     Write-Host "Configurando tarefa agendada periódica ($taskName) para atualizar tarefas de logon dos usuários..."
 
     try {
-        schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
+        Import-Module ScheduledTasks -ErrorAction Stop
+    } catch {
+        Write-Host "Falha ao importar módulo ScheduledTasks: $($_.Exception.Message)"
+        return
+    }
+
+    # Remover tarefa existente, se houver
+    try {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
     } catch {
         # ignore
     }
 
-    $tr = "`"$refreshRunner`""
+    # Ação: executar o wrapper .bat via cmd.exe, no diretório de instalação
+    $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$refreshRunner`"" -WorkingDirectory $InstallPath
 
-    $arguments = @(
-        '/Create',
-        '/SC','MINUTE',
-        '/MO','10',
-        '/RL','HIGHEST',
-        '/RU','SYSTEM',
-        '/F',
-        '/TN',$taskName,
-        '/TR',$tr
-    )
+    # Trigger: executar a cada 10 minutos, por um período longo (10 anos)
+    $startTime = (Get-Date).AddMinutes(1)
+    $interval = New-TimeSpan -Minutes 10
+    $duration = [TimeSpan]::FromDays(3650)
+    $trigger = New-ScheduledTaskTrigger -Once -At $startTime -RepetitionInterval $interval -RepetitionDuration $duration
+
+    # Principal: SYSTEM, nível mais alto
+    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest
+
+    # Configurações padrão razoáveis
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 
     try {
-        schtasks.exe @arguments | Out-Null
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
         Write-Host "Tarefa periódica $taskName criada/atualizada com sucesso."
     } catch {
         Write-Host "Falha ao criar tarefa periódica ${taskName}: $($_.Exception.Message)"
     }
 }
 
-function Ensure-Administrator {
-    $isAdmin = ([Security.Principal.WindowsPrincipal]([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-    if ($isAdmin) {
-        return $true
-    }
-    Write-Host "Este script requer privilégios de administrador."
-    Write-Host "Reabrindo com privilégios elevados..."
-
-    $args = @('-ExecutionPolicy','Bypass','-File',"`"$PSCommandPath`"", "`"$InstallPath`"", "`"$JavaPath`"")
-    if ($Pause) {
-        $args += '-Pause'
-    }
-
-    Start-Process PowerShell -ArgumentList $args -Verb RunAs
-    exit 0
-}
-
-Ensure-Administrator
-
+# Configurações principais do serviço / instalação
 $ServiceName = 'NetNotifyAgent'
 $DisplayName = 'NetNotify Agent'
+
+# Normaliza o caminho de instalação informado
 $InstallPath = Resolve-AbsolutePath $InstallPath
 if (-not $InstallPath) {
     Throw-Error "Erro: o caminho de instalação '$InstallPath' é inválido."
