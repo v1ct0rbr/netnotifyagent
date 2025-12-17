@@ -148,83 +148,14 @@ function Get-InteractiveUsernames {
     return $users | Select-Object -Unique
 }
 
-function Get-ProfileUsernames {
-    $profileKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList'
-    $users = @()
-
-    try {
-        Get-ChildItem -Path $profileKey -ErrorAction Stop | ForEach-Object {
-            $sidKey = $_
-            try {
-                $props = Get-ItemProperty -Path $sidKey.PSPath -Name 'ProfileImagePath' -ErrorAction Stop
-                $profilePath = $props.ProfileImagePath
-            } catch {
-                return
-            }
-
-            if (-not $profilePath -or $profilePath -notlike '*\Users\*') {
-                return
-            }
-
-            try {
-                $sid = New-Object System.Security.Principal.SecurityIdentifier($sidKey.PSChildName)
-                $ntAccount = $sid.Translate([System.Security.Principal.NTAccount])
-                $account = $ntAccount.Value
-
-                if ($account -and $account -notmatch '^(NT AUTHORITY|SYSTEM)$') {
-                    $users += $account
-                }
-            } catch {
-                # Ignora SIDs que não podem ser traduzidos
-            }
-        }
-    } catch {
-        Write-Host "Não foi possível enumerar perfis de usuário via registro: $($_.Exception.Message)"
-    }
-
-    return $users | Select-Object -Unique
-}
-
-function Get-TargetUsernames {
-    # Combina usuários atualmente logados (quser) com todas as contas
-    # que possuem perfil em C:\Users, evitando contas de sistema.
-    $all = @()
-
-    $interactive = Get-InteractiveUsernames
-    if ($interactive) {
-        $all += $interactive
-    }
-
-    $profiles = Get-ProfileUsernames
-    if ($profiles) {
-        $all += $profiles
-    }
-
-    if (-not $all) {
-        return @($env:USERNAME)
-    }
-
-    return $all | Sort-Object -Unique
-}
-
-function Use-ScheduledTasksModule {
-    try {
-        Import-Module ScheduledTasks -ErrorAction Stop
-        return $true
-    } catch {
-        Write-Host 'Módulo ScheduledTasks não disponível; usando schtasks.exe (compatível com Windows 7).'
-        return $false
-    }
-}
-
 function Ensure-ScheduledTaskForUsers {
     param(
         [string]$ServiceBat
     )
 
-    $users = Get-TargetUsernames
+    Import-Module ScheduledTasks -ErrorAction Stop
 
-    $useScheduledModule = Use-ScheduledTasksModule
+    $users = Get-InteractiveUsernames
 
     foreach ($user in $users) {
         $sanitized = ($user -replace '[^A-Za-z0-9]', '_')
@@ -236,35 +167,19 @@ function Ensure-ScheduledTaskForUsers {
         $account = $user
 
         Write-Host "Configurando tarefa agendada para $($user) (tarefa: $taskName, conta: $account)..."
-
-        if ($useScheduledModule) {
-            try {
-                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-            } catch {
-                # ignore
-            }
-            try {
-                $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ServiceBat`""
-                $trigger = New-ScheduledTaskTrigger -AtLogOn -User $account
-                $principal = New-ScheduledTaskPrincipal -UserId $account -RunLevel Highest -LogonType Interactive
-                Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
-                Write-Host ('Tarefa {0} criada para {1} (conta: {2})' -f $taskName, $user, $account)
-            } catch {
-                Write-Host "Falha ao criar tarefa para $($user) (conta: $account): $($_.Exception.Message)"
-            }
-        } else {
-            try {
-                schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
-            } catch {
-                # ignore
-            }
-            try {
-                $taskCommand = "cmd.exe /c `"$ServiceBat`""
-                schtasks.exe /Create /TN $taskName /TR $taskCommand /SC ONLOGON /RU $account /RL HIGHEST /F | Out-Null
-                Write-Host ('Tarefa {0} criada (via schtasks.exe) para {1} (conta: {2})' -f $taskName, $user, $account)
-            } catch {
-                Write-Host "Falha ao criar tarefa (via schtasks.exe) para $($user) (conta: $account): $($_.Exception.Message)"
-            }
+        Try {
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        } catch {
+            # ignore
+        }
+        try {
+            $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ServiceBat`""
+            $trigger = New-ScheduledTaskTrigger -AtLogOn -User $account
+            $principal = New-ScheduledTaskPrincipal -UserId $account -RunLevel Highest -LogonType Interactive
+            Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+            Write-Host ('Tarefa {0} criada para {1} (conta: {2})' -f $taskName, $user, $account)
+        } catch {
+            Write-Host "Falha ao criar tarefa para $($user) (conta: $account): $($_.Exception.Message)"
         }
     }
 }
@@ -290,52 +205,40 @@ function Ensure-PeriodicRefreshTask {
 
     Write-Host "Configurando tarefa agendada periódica ($taskName) para atualizar tarefas de logon dos usuários..."
 
-    $useScheduledModule = Use-ScheduledTasksModule
+    try {
+        Import-Module ScheduledTasks -ErrorAction Stop
+    } catch {
+        Write-Host "Falha ao importar módulo ScheduledTasks: $($_.Exception.Message)"
+        return
+    }
 
-    if ($useScheduledModule) {
-        # Remover tarefa existente, se houver
-        try {
-            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-        } catch {
-            # ignore
-        }
+    # Remover tarefa existente, se houver
+    try {
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+    } catch {
+        # ignore
+    }
 
-        # Ação: executar o wrapper .bat via cmd.exe, no diretório de instalação
-        $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$refreshRunner`"" -WorkingDirectory $InstallPath
+    # Ação: executar o wrapper .bat via cmd.exe, no diretório de instalação
+    $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$refreshRunner`"" -WorkingDirectory $InstallPath
 
-        # Trigger: executar a cada 5 minutos, por um período longo (10 anos)
-        $startTime = (Get-Date).AddMinutes(1)
-        $interval = New-TimeSpan -Minutes 5
-        $duration = [TimeSpan]::FromDays(3650)
-        $trigger = New-ScheduledTaskTrigger -Once -At $startTime -RepetitionInterval $interval -RepetitionDuration $duration
+    # Trigger: executar a cada 10 minutos, por um período longo (10 anos)
+    $startTime = (Get-Date).AddMinutes(1)
+    $interval = New-TimeSpan -Minutes 10
+    $duration = [TimeSpan]::FromDays(3650)
+    $trigger = New-ScheduledTaskTrigger -Once -At $startTime -RepetitionInterval $interval -RepetitionDuration $duration
 
-        # Principal: SYSTEM, nível mais alto
-        $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest
+    # Principal: SYSTEM, nível mais alto
+    $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest
 
-        # Configurações padrão razoáveis
-        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    # Configurações padrão razoáveis
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 
-        try {
-            Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-            Write-Host "Tarefa periódica $taskName criada/atualizada com sucesso."
-        } catch {
-            Write-Host "Falha ao criar tarefa periódica ${taskName}: $($_.Exception.Message)"
-        }
-    } else {
-        # Compatibilidade com Windows 7: usar schtasks.exe
-        try {
-            schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
-        } catch {
-            # ignore
-        }
-
-        try {
-            $taskCommand = "cmd.exe /c `"$refreshRunner`""
-            schtasks.exe /Create /TN $taskName /TR $taskCommand /SC MINUTE /MO 5 /RU SYSTEM /RL HIGHEST /F | Out-Null
-            Write-Host "Tarefa periódica $taskName criada/atualizada com sucesso (via schtasks.exe)."
-        } catch {
-            Write-Host "Falha ao criar tarefa periódica ${taskName} (via schtasks.exe): $($_.Exception.Message)"
-        }
+    try {
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+        Write-Host "Tarefa periódica $taskName criada/atualizada com sucesso."
+    } catch {
+        Write-Host "Falha ao criar tarefa periódica ${taskName}: $($_.Exception.Message)"
     }
 }
 

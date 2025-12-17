@@ -65,14 +65,83 @@ function Get-InteractiveUsernames {
     return $users | Select-Object -Unique
 }
 
+function Use-ScheduledTasksModule {
+    try {
+        Import-Module ScheduledTasks -ErrorAction Stop
+        return $true
+    } catch {
+        Write-Host 'Módulo ScheduledTasks não disponível; usando schtasks.exe (compatível com Windows 7).'
+        return $false
+    }
+}
+
+function Get-ProfileUsernames {
+    $profileKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList'
+    $users = @()
+
+    try {
+        Get-ChildItem -Path $profileKey -ErrorAction Stop | ForEach-Object {
+            $sidKey = $_
+            try {
+                $props = Get-ItemProperty -Path $sidKey.PSPath -Name 'ProfileImagePath' -ErrorAction Stop
+                $profilePath = $props.ProfileImagePath
+            } catch {
+                return
+            }
+
+            if (-not $profilePath -or $profilePath -notlike '*\Users\*') {
+                return
+            }
+
+            try {
+                $sid = New-Object System.Security.Principal.SecurityIdentifier($sidKey.PSChildName)
+                $ntAccount = $sid.Translate([System.Security.Principal.NTAccount])
+                $account = $ntAccount.Value
+
+                if ($account -and $account -notmatch '^(NT AUTHORITY|SYSTEM)$') {
+                    $users += $account
+                }
+            } catch {
+                # Ignora SIDs que não podem ser traduzidos
+            }
+        }
+    } catch {
+        Write-Host "Não foi possível enumerar perfis de usuário via registro: $($_.Exception.Message)"
+    }
+
+    return $users | Select-Object -Unique
+}
+
+function Get-TargetUsernames {
+    # Combina usuários atualmente logados (quser) com todas as contas
+    # que possuem perfil em C:\Users, evitando contas de sistema.
+    $all = @()
+
+    $interactive = Get-InteractiveUsernames
+    if ($interactive) {
+        $all += $interactive
+    }
+
+    $profiles = Get-ProfileUsernames
+    if ($profiles) {
+        $all += $profiles
+    }
+
+    if (-not $all) {
+        return @($env:USERNAME)
+    }
+
+    return $all | Sort-Object -Unique
+}
+
 function Ensure-ScheduledTaskForUsers {
     param(
         [string]$ServiceBat
     )
 
-    Import-Module ScheduledTasks -ErrorAction Stop
+    $users = Get-TargetUsernames
 
-    $users = Get-InteractiveUsernames
+    $useScheduledModule = Use-ScheduledTasksModule
 
     foreach ($user in $users) {
         $sanitized = ($user -replace '[^A-Za-z0-9]', '_')
@@ -84,19 +153,35 @@ function Ensure-ScheduledTaskForUsers {
         $account = $user
 
         Write-Host "Verificando tarefa agendada para $($user) (tarefa: $taskName, conta: $account)..."
-        try {
-            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-        } catch {
-            # ignore
-        }
-        try {
-            $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ServiceBat`""
-            $trigger = New-ScheduledTaskTrigger -AtLogOn -User $account
-            $principal = New-ScheduledTaskPrincipal -UserId $account -RunLevel Highest -LogonType Interactive
-            Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
-            Write-Host "Tarefa $taskName criada/atualizada para $($user) (conta: $account)"
-        } catch {
-            Write-Host "Falha ao criar tarefa para $($user) (conta: $account): $($_.Exception | Select-Object -ExpandProperty Message)"
+
+        if ($useScheduledModule) {
+            try {
+                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+            } catch {
+                # ignore
+            }
+            try {
+                $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ServiceBat`""
+                $trigger = New-ScheduledTaskTrigger -AtLogOn -User $account
+                $principal = New-ScheduledTaskPrincipal -UserId $account -RunLevel Highest -LogonType Interactive
+                Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+                Write-Host "Tarefa $taskName criada/atualizada para $($user) (conta: $account)"
+            } catch {
+                Write-Host "Falha ao criar tarefa para $($user) (conta: $account): $($_.Exception | Select-Object -ExpandProperty Message)"
+            }
+        } else {
+            try {
+                schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
+            } catch {
+                # ignore
+            }
+            try {
+                $taskCommand = "cmd.exe /c `"$ServiceBat`""
+                schtasks.exe /Create /TN $taskName /TR $taskCommand /SC ONLOGON /RU $account /RL HIGHEST /F | Out-Null
+                Write-Host "Tarefa $taskName criada/atualizada (via schtasks.exe) para $($user) (conta: $account)"
+            } catch {
+                Write-Host "Falha ao criar tarefa (via schtasks.exe) para $($user) (conta: $account): $($_.Exception | Select-Object -ExpandProperty Message)"
+            }
         }
     }
 }
