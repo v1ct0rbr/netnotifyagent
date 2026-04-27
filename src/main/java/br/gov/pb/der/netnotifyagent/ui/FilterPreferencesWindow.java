@@ -1,6 +1,8 @@
 package br.gov.pb.der.netnotifyagent.ui;
 
 import br.gov.pb.der.netnotifyagent.utils.FilterSettings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
@@ -16,6 +18,8 @@ import javafx.stage.Stage;
  * Janela de preferências para configurar filtros de mensagens
  */
 public class FilterPreferencesWindow {
+
+    private static final Logger logger = LoggerFactory.getLogger(FilterPreferencesWindow.class);
 
     private Stage stage;
     private CheckBox checkBaixo;
@@ -116,7 +120,7 @@ public class FilterPreferencesWindow {
             stage.getIcons().add(new javafx.scene.image.Image(
                     getClass().getResourceAsStream("/images/notification.png")));
         } catch (Exception e) {
-            System.out.println("[FilterPreferencesWindow] Ícone não encontrado: " + e.getMessage());
+            logger.warn("[FilterPreferencesWindow] Icone nao encontrado: {}", e.getMessage());
         }
 
         stage.setOnCloseRequest(e -> {
@@ -152,8 +156,8 @@ public class FilterPreferencesWindow {
             }
         }).start();
 
-        System.out.println("[FilterPreferencesWindow] Preferências salvas:");
-        System.out.println(FilterSettings.getSummary());
+        logger.info("[FilterPreferencesWindow] Preferencias salvas:");
+        logger.info("{}", FilterSettings.getSummary());
     }
 
     /**

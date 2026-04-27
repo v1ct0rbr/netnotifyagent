@@ -1,24 +1,24 @@
 package br.gov.pb.der.netnotifyagent.ui;
 
 import java.awt.Desktop;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import br.gov.pb.der.netnotifyagent.dto.Message;
-import br.gov.pb.der.netnotifyagent.utils.Constants;
 import br.gov.pb.der.netnotifyagent.utils.Functions;
 import br.gov.pb.der.netnotifyagent.utils.MessageUtils;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.Scene; // initializes toolkit when running from non-JFX app
+import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.image.Image;
@@ -32,36 +32,15 @@ import javafx.stage.Stage;
 
 public class Alert {
 
-    // 'volatile' ensures visibility of changes to 'instance' across threads for
-    // correct double-checked locking
+    private static final Logger logger = LoggerFactory.getLogger(Alert.class);
+
     private static volatile Alert instance;
     private final ObjectMapper objectMapper;
-    // indicador para inicializar o toolkit JavaFX apenas uma vez
-    private static final AtomicBoolean fxInitialized = new AtomicBoolean(false);
 
     private Alert() {
-        // Não usar Swing LookAndFeel quando rodamos com JavaFX
         objectMapper = new ObjectMapper();
-        // Permite JSON usando aspas simples, por exemplo: {'content':'...'}
         objectMapper.configure(JsonParser.Feature.ALLOW_SINGLE_QUOTES, true);
-    }
-
-    private void ensureFxInitialized() {
-        if (fxInitialized.get()) {
-            return;
-        }
-        synchronized (fxInitialized) {
-            if (fxInitialized.get()) {
-                return;
-            }
-            try {
-                // Use centralized initializer
-                br.gov.pb.der.netnotifyagent.ui.FxJavaInitializer.init();
-                fxInitialized.set(true);
-            } catch (Exception e) {
-                System.err.println("Failed to initialize JavaFX via FxJavaInitializer: " + e.getMessage());
-            }
-        }
+        objectMapper.configure(JsonParser.Feature.ALLOW_UNQUOTED_CONTROL_CHARS, true);
     }
 
     public static Alert getInstance() {
@@ -80,17 +59,16 @@ public class Alert {
     public void showInfo(String message) {
         try {
             Message msg = objectMapper.readValue(message, Message.class);
-            ensureFxInitialized();
+            FxJavaInitializer.ensureInitialized();
             Platform.runLater(() -> {
                 Stage stage = new Stage();
                 stage.initModality(Modality.NONE);
                 stage.setAlwaysOnTop(true);
-                Image icon = loadFxIcon();
-                if (icon != null) {
+                Image icon = FxJavaInitializer.loadFxIcon();
+                if (icon != null)
                     stage.getIcons().add(icon);
-                }
                 stage.setTitle("Alerta");
-                Text txt = new Text(msg.getContent());
+                Text txt = new Text(msg.content());
                 txt.wrappingWidthProperty().set(600);
                 ScrollPane sp = new ScrollPane(txt);
                 sp.setPrefSize(600, 200);
@@ -101,15 +79,13 @@ public class Alert {
                 stage.toFront();
             });
         } catch (JsonProcessingException e) {
-            // Se não conseguir fazer parse do JSON, mostra a mensagem original
-            ensureFxInitialized();
+            FxJavaInitializer.ensureInitialized();
             Platform.runLater(() -> {
                 Stage stage = new Stage();
                 stage.initModality(Modality.APPLICATION_MODAL);
-                Image icon = loadFxIcon();
-                if (icon != null) {
+                Image icon = FxJavaInitializer.loadFxIcon();
+                if (icon != null)
                     stage.getIcons().add(icon);
-                }
                 stage.setTitle("Alerta");
                 Text txt = new Text(message);
                 txt.wrappingWidthProperty().set(600);
@@ -125,15 +101,14 @@ public class Alert {
     }
 
     public void showError(String message) {
-        ensureFxInitialized();
+        FxJavaInitializer.ensureInitialized();
         Platform.runLater(() -> {
             Stage stage = new Stage();
             stage.initModality(Modality.NONE);
             stage.setAlwaysOnTop(true);
-            Image icon = loadFxIcon();
-            if (icon != null) {
+            Image icon = FxJavaInitializer.loadFxIcon();
+            if (icon != null)
                 stage.getIcons().add(icon);
-            }
             stage.setTitle("Erro");
             Text txt = new Text(message);
             txt.wrappingWidthProperty().set(600);
@@ -150,14 +125,11 @@ public class Alert {
     public void showHtml(String htmlContent) {
         try {
             Message message = objectMapper.readValue(htmlContent, Message.class);
-            System.out.println("Parsed message: " + message.getContent());
+            logger.info("Parsed message: {}", message.content());
 
-            // Inicializa JavaFX toolkit se necessário
-            ensureFxInitialized();
+            FxJavaInitializer.ensureInitialized();
 
             final String contentToLoad = sanitizeHtml(Functions.addHtmlTagsToContent(message));
-            // Versão não sanitizada (mas ainda com imagens inlined) para abrir no navegador
-            // externo
             final String fullHtmlForBrowser = Functions.addHtmlTagsToContent(message);
 
             Platform.runLater(() -> {
@@ -167,88 +139,82 @@ public class Alert {
                     stage.setAlwaysOnTop(true);
                     stage.setResizable(true);
 
-                    Image icon = loadFxIcon();
-                    if (icon != null) {
+                    Image icon = FxJavaInitializer.loadFxIcon();
+                    if (icon != null)
                         stage.getIcons().add(icon);
-                    }
                     stage.setTitle(
-                            message.getType() != null ? MessageUtils.formatMessageType(message.getType()) : "Mensagem");
+                            message.type() != null ? MessageUtils.formatMessageType(message.type()) : "Mensagem");
 
                     WebView webView = new WebView();
                     WebEngine engine = webView.getEngine();
 
-                    // Desativa JavaScript e menu de contexto para evitar scripts externos que criem
-                    // botões
                     engine.setJavaScriptEnabled(false);
                     webView.setContextMenuEnabled(false);
 
-                    // limites máximos (90% da area visivel)
                     double maxW = javafx.stage.Screen.getPrimary().getVisualBounds().getWidth() * 0.9;
                     double maxH = javafx.stage.Screen.getPrimary().getVisualBounds().getHeight() * 0.9;
 
-                    // registra listener de erros de carga para fallback
                     engine.getLoadWorker().exceptionProperty().addListener((obs, oldEx, newEx) -> {
-                        if (newEx != null) {
-                            System.err.println("WebEngine load error: " + newEx.getMessage());
-                        }
+                        if (newEx != null)
+                            logger.error("WebEngine load error: {}", newEx.getMessage());
                     });
 
-                    // carga do conteúdo
                     engine.loadContent(contentToLoad, "text/html");
 
-                    // quando o documento terminar de carregar, obter tamanho e ajustar janela
                     engine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
                         try {
                             if (newState == javafx.concurrent.Worker.State.SUCCEEDED) {
-                                // executa JS apenas para medir (JS está desativado, usar valores padrões
-                                // seguros)
+                                // habilita JS temporariamente apenas para medir dimensoes do documento
+                                engine.setJavaScriptEnabled(true);
                                 Object wObj = engine.executeScript(
                                         "Math.max(document.documentElement.scrollWidth, document.body.scrollWidth)");
                                 Object hObj = engine.executeScript(
                                         "Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)");
+                                engine.setJavaScriptEnabled(false);
 
                                 double contentW = (wObj instanceof Number) ? ((Number) wObj).doubleValue() : 800;
                                 double contentH = (hObj instanceof Number) ? ((Number) hObj).doubleValue() : 600;
 
-                                // aplicar padding e limites
                                 double paddingW = 20;
-                                double paddingH = 80; // inclui barras/titulo
+                                double paddingH = 80;
                                 double finalW = Math.min(contentW + paddingW, maxW);
                                 double finalH = Math.min(contentH + paddingH, maxH);
 
-                                // ajustar WebView e Stage
                                 webView.setPrefWidth(finalW);
                                 webView.setPrefHeight(finalH);
                                 stage.setWidth(finalW);
                                 stage.setHeight(finalH);
-
-                                // opcional: garantir que a janela não fique menor que um mínimo
                                 stage.setMinWidth(300);
                                 stage.setMinHeight(150);
-
-                                // centralizar/visibilizar
                                 stage.centerOnScreen();
                                 stage.toFront();
                             }
                         } catch (Exception ex) {
-                            System.err.println("Erro ao ajustar tamanho dinamico: " + ex.getMessage());
+                            logger.error("Erro ao ajustar tamanho dinamico: {}", ex.getMessage());
                         }
                     });
 
-                    // Botão no rodapé para abrir em navegador externo
                     Button openInBrowserButton = new Button("Abrir no navegador");
                     openInBrowserButton.setOnAction(evt -> {
                         try {
                             if (!Desktop.isDesktopSupported()
                                     || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                                System.err.println("Desktop browse not supported");
+                                logger.error("Desktop browse not supported");
                                 return;
                             }
                             Path tempFile = Files.createTempFile("netnotifyagent-msg-", ".html");
+                            tempFile.toFile().deleteOnExit(); // garante limpeza ao sair
                             Files.writeString(tempFile, fullHtmlForBrowser, StandardCharsets.UTF_8);
                             Desktop.getDesktop().browse(tempFile.toUri());
+                            Thread.ofVirtual().name("temp-cleanup").start(() -> {
+                                try {
+                                    Thread.sleep(30_000);
+                                    Files.deleteIfExists(tempFile);
+                                } catch (Exception ignored) {
+                                }
+                            });
                         } catch (Exception ex) {
-                            System.err.println("Erro ao abrir conteúdo no navegador: " + ex.getMessage());
+                            logger.error("Erro ao abrir conteudo no navegador: {}", ex.getMessage());
                         }
                     });
 
@@ -261,35 +227,38 @@ public class Alert {
                     Scene scene = new Scene(root);
                     stage.setScene(scene);
 
-                    // mostra imediatamente; será redimensionada no listener acima
                     stage.show();
                     stage.toFront();
                     stage.requestFocus();
 
                 } catch (Exception ex) {
-                    System.err.println("Erro ao exibir conteúdo em JavaFX: " + ex.getMessage());
+                    logger.error("Erro ao exibir conteudo em JavaFX: {}", ex.getMessage());
                 }
             });
         } catch (JsonProcessingException e) {
-            System.out.println("Erro ao fazer parse do JSON: " + e.getMessage());
-            // Se não conseguir fazer parse do JSON, mostra a mensagem original como texto
-            ensureFxInitialized();
+            logger.info("Erro ao fazer parse do JSON: {}", e.getMessage());
+            FxJavaInitializer.ensureInitialized();
             Platform.runLater(() -> {
                 Stage stage = new Stage();
                 stage.initModality(Modality.NONE);
                 stage.setAlwaysOnTop(true);
                 stage.setResizable(true);
                 stage.centerOnScreen();
-                Image icon = loadFxIcon();
-                if (icon != null) {
+                Image icon = FxJavaInitializer.loadFxIcon();
+                if (icon != null)
                     stage.getIcons().add(icon);
-                }
                 stage.setTitle("Mensagem");
-                System.out.println("Creating fallback HTML window");
+                logger.info("Creating fallback HTML window");
                 WebView webView = new WebView();
                 webView.getEngine().setJavaScriptEnabled(false);
                 webView.setContextMenuEnabled(false);
-                webView.getEngine().loadContent("<pre>" + sanitizeHtml(htmlContent) + "</pre>", "text/html");
+                webView.getEngine().loadContent(
+                        "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">"
+                                + "<style>body{font-family:Arial,sans-serif;margin:10px;white-space:pre-wrap;word-wrap:break-word;}</style>"
+                                + "</head><body>"
+                                + sanitizeHtml(br.gov.pb.der.netnotifyagent.utils.Functions.stripEmoji(htmlContent))
+                                + "</body></html>",
+                        "text/html");
                 webView.setPrefSize(600, 200);
                 VBox root = new VBox(webView);
                 root.setPadding(new Insets(5));
@@ -297,52 +266,25 @@ public class Alert {
                 stage.show();
                 stage.toFront();
                 stage.requestFocus();
-                System.out.println("Fallback window should be visible now");
+                logger.info("Fallback window should be visible now");
             });
         }
     }
 
-    private Image loadFxIcon() {
-        try (InputStream is = Alert.class.getResourceAsStream(Constants.ICON_48PX_PATH)) {
-            if (is == null) {
-                return null;
-            }
-            return new Image(is);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    // Adiciona tags HTML básicas se não existirem
-    // Usar font roboto ou similar para melhor compatibilidade
-
     /**
-     * Remove scripts, iframes, meta-refresh e atributos de evento (onerror/onload
-     * etc.)
-     * para evitar que o conteúdo carregue recursos externos ou injete botões de
-     * recarga.
+     * Remove scripts, iframes, meta-refresh e atributos de evento para evitar
+     * que o conteudo carregue recursos externos ou injete botoes de recarga.
      */
-    private String sanitizeHtml(String html) {
+    public static String sanitizeHtml(String html) {
         if (html == null)
             return "";
-
-        // remove <script>...</script>
         html = html.replaceAll("(?is)<script[^>]*>.*?</script>", "");
-
-        // remove <iframe>...</iframe> e tags embed/object
         html = html.replaceAll("(?is)<iframe[^>]*>.*?</iframe>", "");
         html = html.replaceAll("(?is)<embed[^>]*>", "");
         html = html.replaceAll("(?is)<object[^>]*>.*?</object>", "");
-
-        // remove meta refresh
         html = html.replaceAll("(?i)<meta[^>]+http-equiv\\s*=\\s*['\"]?refresh['\"]?[^>]*>", "");
-
-        // remove inline event handlers (onerror, onload, onclick, etc.)
         html = html.replaceAll("(?i)on[a-z]+\\s*=\\s*(['\"]).*?\\1", "");
-
-        // remove javascript: URLs
         html = html.replaceAll("(?i)href\\s*=\\s*(['\"])javascript:[^'\"]*\\1", "");
-
         return html;
     }
 }

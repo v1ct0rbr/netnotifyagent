@@ -10,6 +10,8 @@ import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 
 import br.gov.pb.der.netnotifyagent.utils.Constants;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
@@ -24,6 +26,8 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 
 public class ConfigurationWindow {
+
+    private static final Logger logger = LoggerFactory.getLogger(ConfigurationWindow.class);
 
     private Stage stage;
     private final Properties properties;
@@ -63,10 +67,10 @@ public class ConfigurationWindow {
                     this.properties.load(fis);
                 }
             } else {
-                System.err.println("Arquivo de configurações não encontrado: " + settingsFile.getAbsolutePath());
+                logger.error("Arquivo de configuracoes nao encontrado: {}", settingsFile.getAbsolutePath());
             }
         } catch (IOException e) {
-            System.err.println("Erro ao carregar configurações: " + e.getMessage());
+            logger.error("Erro ao carregar configuracoes: {}", e.getMessage());
         }
     }
 

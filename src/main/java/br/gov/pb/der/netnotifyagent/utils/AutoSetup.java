@@ -5,11 +5,17 @@ import java.io.File;
 import java.io.InputStreamReader;
 import java.util.concurrent.TimeUnit;
 
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 /**
  * Utilitário para auto-configurar a aplicação no Windows
  * Cria e inicia uma Scheduled Task para auto-iniciar na próxima vez que o usuário logar
  */
 public class AutoSetup {
+
+    private static final Logger logger = LoggerFactory.getLogger(AutoSetup.class);
+
 
     private static final String TASK_NAME = "NetNotifyAgent";
     private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
@@ -21,20 +27,20 @@ public class AutoSetup {
      */
     public static void ensureScheduledTaskAtLogon() {
         if (!IS_WINDOWS) {
-            System.out.println("[AutoSetup] Não é Windows - pulando configuração de Scheduled Task");
+            logger.info("[AutoSetup] Não é Windows - pulando configuração de Scheduled Task");
             return;
         }
 
         try {
-            System.out.println("[AutoSetup] Iniciando verificação de Scheduled Task...");
+            logger.info("[AutoSetup] Iniciando verificação de Scheduled Task...");
             
             // Verificar se a task já existe
             if (taskExists()) {
-                System.out.println("[AutoSetup] Scheduled Task '" + TASK_NAME + "' já existe");
+                logger.info("[AutoSetup] Scheduled Task '" + TASK_NAME + "' já existe");
                 return;
             }
 
-            System.out.println("[AutoSetup] Scheduled Task não encontrada - criando...");
+            logger.info("[AutoSetup] Scheduled Task não encontrada - criando...");
             
             // Aguardar 3 segundos antes de criar
             waitWithMessage(3, "Preparando para criar Scheduled Task");
@@ -48,11 +54,11 @@ public class AutoSetup {
             // Iniciar a task imediatamente
             startScheduledTask();
             
-            System.out.println("[AutoSetup] ✓ Scheduled Task configurada e iniciada com sucesso");
+            logger.info("[AutoSetup] ✓ Scheduled Task configurada e iniciada com sucesso");
             
         } catch (Exception e) {
             // Não bloquear a inicialização da aplicação se o AutoSetup falhar
-            System.out.println("[AutoSetup] ⚠ Erro ao configurar Scheduled Task (aplicação continuará): " + e.getMessage());
+            logger.info("[AutoSetup] ⚠ Erro ao configurar Scheduled Task (aplicação continuará): " + e.getMessage());
             // Não fazer printStackTrace para não poluir logs
         }
     }
@@ -76,7 +82,7 @@ public class AutoSetup {
      * Cria a Scheduled Task para iniciar na próxima vez que o usuário logar
      */
     private static void createScheduledTask() throws Exception {
-        System.out.println("[AutoSetup] Criando task com diretório de instalação: " + INSTALLATION_DIR);
+        logger.info("[AutoSetup] Criando task com diretório de instalação: " + INSTALLATION_DIR);
         
         // Caminho para run.bat (script launcher)
         File runBat = new File(INSTALLATION_DIR, "run.bat");
@@ -94,7 +100,7 @@ public class AutoSetup {
                 if (candidate.exists()) {
                     runBat = candidate;
                     found = true;
-                    System.out.println("[AutoSetup] run.bat encontrado em: " + runBat.getAbsolutePath());
+                    logger.info("[AutoSetup] run.bat encontrado em: " + runBat.getAbsolutePath());
                     break;
                 }
             }
@@ -123,7 +129,7 @@ public class AutoSetup {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                System.out.println("[AutoSetup] schtasks: " + line);
+                logger.info("[AutoSetup] schtasks: " + line);
             }
         }
         
@@ -132,7 +138,7 @@ public class AutoSetup {
             throw new RuntimeException("schtasks /create falhou com exit code: " + exitCode);
         }
         
-        System.out.println("[AutoSetup] Scheduled Task criada com sucesso");
+        logger.info("[AutoSetup] Scheduled Task criada com sucesso");
     }
 
     /**
@@ -148,17 +154,17 @@ public class AutoSetup {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                System.out.println("[AutoSetup] schtasks run: " + line);
+                logger.info("[AutoSetup] schtasks run: " + line);
             }
         }
         
         int exitCode = process.waitFor();
         if (exitCode != 0 && exitCode != 1) {
             // Ignorar exit code 1 pois pode significar que a task já está em execução
-            System.out.println("[AutoSetup] Aviso: schtasks /run retornou exit code: " + exitCode);
+            logger.info("[AutoSetup] Aviso: schtasks /run retornou exit code: " + exitCode);
         }
         
-        System.out.println("[AutoSetup] Scheduled Task iniciada");
+        logger.info("[AutoSetup] Scheduled Task iniciada");
     }
 
     /**
@@ -174,7 +180,7 @@ public class AutoSetup {
             
             if (jarFile.isFile()) {
                 String parentDir = jarFile.getParent();
-                System.out.println("[AutoSetup] Diretório detectado via JAR: " + parentDir);
+                logger.info("[AutoSetup] Diretório detectado via JAR: " + parentDir);
                 
                 // Verificar se run.bat existe nesse diretório
                 File runBat = new File(parentDir, "run.bat");
@@ -185,7 +191,7 @@ public class AutoSetup {
             
             // Estratégia 2: Usar o diretório de trabalho atual
             String userDir = System.getProperty("user.dir");
-            System.out.println("[AutoSetup] Tentando usar user.dir: " + userDir);
+            logger.info("[AutoSetup] Tentando usar user.dir: " + userDir);
             
             File runBat = new File(userDir, "run.bat");
             if (runBat.exists()) {
@@ -193,11 +199,11 @@ public class AutoSetup {
             }
             
             // Estratégia 3: Se nenhuma funcionar, retornar user.dir como fallback
-            System.out.println("[AutoSetup] Aviso: run.bat não encontrado, usando user.dir como fallback");
+            logger.info("[AutoSetup] Aviso: run.bat não encontrado, usando user.dir como fallback");
             return userDir;
             
         } catch (Exception e) {
-            System.out.println("[AutoSetup] Erro ao detectar diretório de instalação: " + e.getMessage());
+            logger.info("[AutoSetup] Erro ao detectar diretório de instalação: " + e.getMessage());
             return System.getProperty("user.dir");
         }
     }
@@ -207,7 +213,7 @@ public class AutoSetup {
      */
     private static void waitWithMessage(int seconds, String message) {
         for (int i = seconds; i > 0; i--) {
-            System.out.println("[AutoSetup] " + message + "... (" + i + "s)");
+            logger.info("[AutoSetup] " + message + "... (" + i + "s)");
             try {
                 TimeUnit.SECONDS.sleep(1);
             } catch (InterruptedException e) {
@@ -217,3 +223,4 @@ public class AutoSetup {
         }
     }
 }
+

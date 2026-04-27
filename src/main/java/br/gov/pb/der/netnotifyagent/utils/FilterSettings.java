@@ -6,18 +6,22 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Properties;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
- * Gerencia as configurações de filtro de mensagens por nível
- * Salva e carrega as preferências do usuário em settings.properties
+ * Gerencia as configuracoes de filtro de mensagens por nivel
+ * Salva e carrega as preferencias do usuario em settings.properties
  */
 public class FilterSettings {
+
+    private static final Logger logger = LoggerFactory.getLogger(FilterSettings.class);
 
     private static final String FILTER_BAIXO_KEY = "filter.level.baixo.enabled";
     private static final String FILTER_NORMAL_KEY = "filter.level.normal.enabled";
     private static final String FILTER_ALTO_KEY = "filter.level.alto.enabled";
     private static final String FILTER_URGENTE_KEY = "filter.level.urgente.enabled";
 
-    // Valores padrão: mostrar todas as mensagens
     private static final boolean DEFAULT_BAIXO = true;
     private static final boolean DEFAULT_NORMAL = true;
     private static final boolean DEFAULT_ALTO = true;
@@ -30,38 +34,29 @@ public class FilterSettings {
         loadSettings();
     }
 
-    /**
-     * Carrega as configurações de settings.properties
-     */
-    private static void loadSettings() {
+    private static synchronized void loadSettings() {
         try {
             File settingsFile = new File(SETTINGS_FILE);
             if (settingsFile.exists()) {
                 try (FileInputStream fis = new FileInputStream(settingsFile)) {
                     properties.load(fis);
                 }
-                System.out.println("[FilterSettings] Configurações carregadas de: " + SETTINGS_FILE);
-                // Forçar URGENTE como sempre ativo, mesmo que o arquivo esteja diferente
+                logger.info("[FilterSettings] Configuracoes carregadas de: {}", SETTINGS_FILE);
                 String urgenteProp = properties.getProperty(FILTER_URGENTE_KEY);
                 if (!"true".equalsIgnoreCase(urgenteProp)) {
                     properties.setProperty(FILTER_URGENTE_KEY, "true");
-                    // Persistir correção no arquivo imediatamente
                     saveSettings();
                 }
             } else {
-                System.out.println("[FilterSettings] Arquivo de configurações não encontrado, usando padrões");
-                // Criar propriedades padrão
+                logger.info("[FilterSettings] Arquivo de configuracoes nao encontrado, usando padroes");
                 setDefaults();
             }
         } catch (IOException e) {
-            System.out.println("[FilterSettings] Erro ao carregar configurações: " + e.getMessage());
+            logger.warn("[FilterSettings] Erro ao carregar configuracoes: {}", e.getMessage());
             setDefaults();
         }
     }
 
-    /**
-     * Define os valores padrão
-     */
     private static void setDefaults() {
         properties.setProperty(FILTER_BAIXO_KEY, String.valueOf(DEFAULT_BAIXO));
         properties.setProperty(FILTER_NORMAL_KEY, String.valueOf(DEFAULT_NORMAL));
@@ -69,114 +64,65 @@ public class FilterSettings {
         properties.setProperty(FILTER_URGENTE_KEY, String.valueOf(DEFAULT_URGENTE));
     }
 
-    /**
-     * Salva as configurações em settings.properties
-     */
-    public static void saveSettings() {
+    public static synchronized void saveSettings() {
         try {
             File settingsFile = new File(SETTINGS_FILE);
-            settingsFile.getParentFile().mkdirs(); // Criar diretório se não existir
-            
-            // Garantir que o nível URGENTE permaneça sempre ativo ao salvar
+            settingsFile.getParentFile().mkdirs();
             properties.setProperty(FILTER_URGENTE_KEY, "true");
-
             try (FileOutputStream fos = new FileOutputStream(settingsFile)) {
-                properties.store(fos, "NetNotify Agent - Configurações de Filtro de Mensagens");
-                System.out.println("[FilterSettings] Configurações salvas com sucesso");
+                properties.store(fos, "NetNotify Agent - Configuracoes de Filtro de Mensagens");
+                logger.info("[FilterSettings] Configuracoes salvas com sucesso");
             }
         } catch (IOException e) {
-            System.out.println("[FilterSettings] Erro ao salvar configurações: " + e.getMessage());
+            logger.warn("[FilterSettings] Erro ao salvar configuracoes: {}", e.getMessage());
         }
     }
 
-    /**
-     * Define se deve mostrar mensagens com nível "Baixo"
-     */
-    public static void setBaixoEnabled(boolean enabled) {
+    public static synchronized void setBaixoEnabled(boolean enabled) {
         properties.setProperty(FILTER_BAIXO_KEY, String.valueOf(enabled));
     }
 
-    /**
-     * Define se deve mostrar mensagens com nível "Normal"
-     */
-    public static void setNormalEnabled(boolean enabled) {
+    public static synchronized void setNormalEnabled(boolean enabled) {
         properties.setProperty(FILTER_NORMAL_KEY, String.valueOf(enabled));
     }
 
-    /**
-     * Define se deve mostrar mensagens com nível "Alto"
-     */
-    public static void setAltoEnabled(boolean enabled) {
+    public static synchronized void setAltoEnabled(boolean enabled) {
         properties.setProperty(FILTER_ALTO_KEY, String.valueOf(enabled));
     }
 
-    /**
-     * Define se deve mostrar mensagens com nível "Urgente"
-     */
-    public static void setUrgenteEnabled(boolean enabled) {
+    public static synchronized void setUrgenteEnabled(boolean enabled) {
         // Ignorar tentativa de desativar URGENTE - manter sempre true
         properties.setProperty(FILTER_URGENTE_KEY, "true");
     }
 
-    /**
-     * Verifica se deve mostrar mensagens com nível "Baixo"
-     */
-    public static boolean isBaixoEnabled() {
+    public static synchronized boolean isBaixoEnabled() {
         return Boolean.parseBoolean(properties.getProperty(FILTER_BAIXO_KEY, String.valueOf(DEFAULT_BAIXO)));
     }
 
-    /**
-     * Verifica se deve mostrar mensagens com nível "Normal"
-     */
-    public static boolean isNormalEnabled() {
+    public static synchronized boolean isNormalEnabled() {
         return Boolean.parseBoolean(properties.getProperty(FILTER_NORMAL_KEY, String.valueOf(DEFAULT_NORMAL)));
     }
 
-    /**
-     * Verifica se deve mostrar mensagens com nível "Alto"
-     */
-    public static boolean isAltoEnabled() {
+    public static synchronized boolean isAltoEnabled() {
         return Boolean.parseBoolean(properties.getProperty(FILTER_ALTO_KEY, String.valueOf(DEFAULT_ALTO)));
     }
 
-    /**
-     * Verifica se deve mostrar mensagens com nível "Urgente"
-     */
-    public static boolean isUrgenteEnabled() {
-        // URGENTE é sempre considerado ativo
+    public static synchronized boolean isUrgenteEnabled() {
+        // URGENTE e sempre considerado ativo
         return true;
     }
 
-    /**
-     * Verifica se uma mensagem deve ser exibida com base em seu nível
-     * @param level Nível da mensagem (e.g., "Baixo", "Normal", "Alto", "Urgente")
-     * @return true se a mensagem deve ser exibida, false caso contrário
-     */
-    public static boolean shouldShowMessage(String level) {
-        if (level == null) {
-            return true; // Mostrar mensagens sem nível definido
-        }
-
-        String normalizedLevel = level.trim().toLowerCase();
-
-        switch (normalizedLevel) {
-            case "baixo":
-                return isBaixoEnabled();
-            case "normal":
-                return isNormalEnabled();
-            case "alto":
-                return isAltoEnabled();
-            case "urgente":
-                return true;
-            default:
-                return true; // Mostrar níveis desconhecidos
-        }
+    public static synchronized boolean shouldShowMessage(String level) {
+        if (level == null) return true;
+        return switch (level.trim().toLowerCase()) {
+            case "baixo" -> isBaixoEnabled();
+            case "normal" -> isNormalEnabled();
+            case "alto" -> isAltoEnabled();
+            default -> true;
+        };
     }
 
-    /**
-     * Retorna um resumo das configurações atuais
-     */
-    public static String getSummary() {
+    public static synchronized String getSummary() {
         return "Filtros de Mensagens:\n" +
                 "  Baixo: " + (isBaixoEnabled() ? "Ativado" : "Desativado") + "\n" +
                 "  Normal: " + (isNormalEnabled() ? "Ativado" : "Desativado") + "\n" +
@@ -184,10 +130,7 @@ public class FilterSettings {
                 "  Urgente: " + (isUrgenteEnabled() ? "Ativado" : "Desativado");
     }
 
-    /**
-     * Recarrega as configurações do arquivo
-     */
-    public static void reload() {
+    public static synchronized void reload() {
         loadSettings();
     }
 }

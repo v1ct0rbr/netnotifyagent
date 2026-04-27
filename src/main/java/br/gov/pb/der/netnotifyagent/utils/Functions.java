@@ -14,28 +14,87 @@ import java.util.regex.Pattern;
 
 import br.gov.pb.der.netnotifyagent.dto.Message;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class Functions {
 
+    private static final Logger logger = LoggerFactory.getLogger(Functions.class);
+    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper()
+                    .configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_UNQUOTED_CONTROL_CHARS, true);
+
+    private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[a-zA-Z][^>]*>", Pattern.DOTALL);
+
     public static String addHtmlTagsToContent(Message message) {
-        if (message == null || message.getContent() == null || message.getContent().isEmpty()) {
-            return message != null && message.getContent() != null ? message.getContent() : "";
+        if (message == null || message.content() == null || message.content().isEmpty()) {
+            return message != null && message.content() != null ? message.content() : "";
         }
-        // Inline remote images before wrapping in HTML tags
-        String processedContent = inlineRemoteImages(message.getContent());
+        String safeTitle = stripEmoji(message.title() != null ? message.title() : "");
+        String rawContent = message.content();
+        String processedContent;
+        if (HTML_TAG_PATTERN.matcher(rawContent).find()) {
+            // HTML content: strip emoji from text nodes only, then inline remote images
+            processedContent = inlineRemoteImages(stripEmojiFromHtml(rawContent));
+        } else {
+            // Plain text: strip emoji and preserve line breaks
+            processedContent = "<p style=\"white-space:pre-wrap;word-wrap:break-word\">"
+                    + stripEmoji(rawContent).trim() + "</p>";
+        }
         StringBuilder sb = new StringBuilder();
         sb.append("<html><head><meta charset=\"UTF-8\">");
-        sb.append(
-                "<link href=\"https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap\" rel=\"stylesheet\">");
-        sb.append("<style>");
-        sb.append("body { font-family: Arial, sans-serif; margin: 10px; }");
-        sb.append("img { max-width: 100%; height: auto; }");
-        sb.append("</style>");
+        sb.append("<link href=\"https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap\" rel=\"stylesheet\">");
+        sb.append("<style>body { font-family: Arial, sans-serif; margin: 10px; } img { max-width: 100%; height: auto; }</style>");
         sb.append("</head><body>");
-        sb.append(MessageUtils.formatMessageLevel(message.getLevel(), message.getTitle()));
+        sb.append(MessageUtils.formatMessageLevel(message.level(), safeTitle));
         sb.append(processedContent);
         sb.append("</body></html>");
         return sb.toString();
     }
+
+    /** Removes all emoji code points from plain text. */
+    public static String stripEmoji(String text) {
+        if (text == null || text.isEmpty()) return text;
+        StringBuilder result = new StringBuilder();
+        int i = 0;
+        while (i < text.length()) {
+            int cp = text.codePointAt(i);
+            if (!isEmojiCodePoint(cp)) {
+                result.appendCodePoint(cp);
+            }
+            i += Character.charCount(cp);
+        }
+        return result.toString();
+    }
+
+    /** Removes emoji code points from text nodes in an HTML string, leaving tags and entities untouched. */
+    public static String stripEmojiFromHtml(String html) {
+        if (html == null || html.isEmpty()) return html;
+        java.util.regex.Pattern tagOrEntity = java.util.regex.Pattern.compile(
+                "<[^>]*>|&(?:#\\d+|#[xX][0-9a-fA-F]+|[a-zA-Z]+);", java.util.regex.Pattern.DOTALL);
+        java.util.regex.Matcher m = tagOrEntity.matcher(html);
+        StringBuilder sb = new StringBuilder();
+        int lastEnd = 0;
+        while (m.find()) {
+            sb.append(stripEmoji(html.substring(lastEnd, m.start())));
+            sb.append(m.group());
+            lastEnd = m.end();
+        }
+        sb.append(stripEmoji(html.substring(lastEnd)));
+        return sb.toString();
+    }
+
+    private static boolean isEmojiCodePoint(int cp) {
+        return (cp >= 0x1F000 && cp <= 0x1FFFF)   // Supplementary Multilingual Plane
+            || (cp >= 0x2600  && cp <= 0x26FF)     // Miscellaneous Symbols
+            || (cp >= 0x2700  && cp <= 0x27FF)     // Dingbats
+            || (cp >= 0x1FA00 && cp <= 0x1FAFF)    // Symbols and Pictographs Extended-A
+            || (cp >= 0xFE00  && cp <= 0xFE0F)     // Variation Selectors (leftover after base emoji stripped)
+            || cp == 0x200D                         // Zero Width Joiner (ZWJ sequences)
+            || cp == 0x20E3                         // Combining Enclosing Keycap
+            || cp == 0x00A9 || cp == 0x00AE;       // ©️ ®️
+    }
+
 
     private static String inlineRemoteImages(String html) {
         if (html == null || html.isEmpty()) {
@@ -91,10 +150,9 @@ public class Functions {
     public static Message jsonToObject(String json, Class<Message> aClass) {
         Message message = null;
         try {
-            com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            message = objectMapper.readValue(json, aClass);
+            message = MAPPER.readValue(json, aClass);
         } catch (IOException e) {
-            System.err.println("Erro ao processar JSON: " + e.getMessage());
+            logger.error("Erro ao processar JSON: {}", e.getMessage());
         }
         return message;
     }

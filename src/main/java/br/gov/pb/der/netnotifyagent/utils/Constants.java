@@ -15,6 +15,7 @@ public class Constants {
 
     public static final String SETTINGS_FILE_PATH = "resources/settings.properties";
     public static final String LOG_FILE_PATH = "resources/netnotifyagent.log";
+    public static final String HISTORY_FILE_PATH = "resources/notification_history.json";
     public static final String ICON_48PX_PATH = "/images/icon_48px.png";
 
     public static final String APP_CREATOR = "Victor Queiroga";

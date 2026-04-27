@@ -95,7 +95,18 @@ if not exist "!LIBS_DIR!" (
 )
 
 rem executar sem usar wildcards na variavel
-start "" "!JAVA_EXE!" --module-path "!LIBS_DIR!" --add-modules javafx.controls,javafx.web -cp "!JAR_FILE!;!LIBS_DIR!\*" br.gov.pb.der.netnotifyagent.NetnotifyagentLauncher
+REM Verificar versão do Java (necessário Java 21+)
+for /f "tokens=3" %%g in ('"!JAVA_EXE!" -version 2^>^&1 ^| findstr /i "version"') do (
+    set JAVA_VER=%%g
+)
+set JAVA_VER=!JAVA_VER:"=!
+for /f "delims=. tokens=1" %%v in ("!JAVA_VER!") do set JAVA_MAJOR=%%v
+if !JAVA_MAJOR! LSS 21 (
+    echo Erro: Java 21+ e necessario. Versao atual: !JAVA_VER!
+    pause
+    exit /b 1
+)
+start "" "!JAVA_EXE!" --module-path "!LIBS_DIR!" --add-modules javafx.controls,javafx.web,javafx.swing,javafx.fxml,javafx.media -cp "!JAR_FILE!;!LIBS_DIR!\*" br.gov.pb.der.netnotifyagent.NetnotifyagentLauncher
 
 exit /b 0
 

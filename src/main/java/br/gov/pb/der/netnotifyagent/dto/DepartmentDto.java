@@ -1,13 +1,7 @@
 package br.gov.pb.der.netnotifyagent.dto;
 
-public class DepartmentDto {
-    String name;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-}
+@JsonIgnoreProperties(ignoreUnknown = true)
+public record DepartmentDto(@JsonProperty("name") String name) {}
