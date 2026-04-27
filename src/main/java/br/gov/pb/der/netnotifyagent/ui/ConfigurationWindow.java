@@ -3,7 +3,11 @@ package br.gov.pb.der.netnotifyagent.ui;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Properties;
+
+import br.gov.pb.der.netnotifyagent.utils.PropertiesFileUtil;
 
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
@@ -280,7 +284,9 @@ public class ConfigurationWindow {
                 "rabbitmq.exchange", "rabbitmq.queue", "rabbitmq.routingkey", "rabbitmq.virtualhost",
                 "agent.department.name" };
 
+        Map<String, String> updates = new LinkedHashMap<>();
         for (int i = 0; i < fields.length && i < keys.length; i++) {
+            updates.put(keys[i], fields[i].getText());
             properties.setProperty(keys[i], fields[i].getText());
         }
 
@@ -288,13 +294,12 @@ public class ConfigurationWindow {
         if (notificationModeCombo != null) {
             String selected = notificationModeCombo.getSelectionModel().getSelectedItem();
             String mode = "browser".equalsIgnoreCase(selected) ? "browser" : "window";
+            updates.put("notifications.display.mode", mode);
             properties.setProperty("notifications.display.mode", mode);
         }
 
-        // Salvar para arquivo
-        try (var fos = new java.io.FileOutputStream(SETTINGS_FILE)) {
-            properties.store(fos, "NetNotify Agent Configuration - Updated " + java.time.LocalDateTime.now());
-        }
+        // Salva apenas as chaves gerenciadas, preservando java.home e outras intactas
+        PropertiesFileUtil.updateProperties(new File(SETTINGS_FILE), updates);
     }
 
     private void showInfo(String message) {

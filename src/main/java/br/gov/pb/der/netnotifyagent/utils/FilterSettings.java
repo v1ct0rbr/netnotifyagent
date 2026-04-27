@@ -2,8 +2,9 @@ package br.gov.pb.der.netnotifyagent.utils;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Properties;
 
 import org.slf4j.Logger;
@@ -66,13 +67,14 @@ public class FilterSettings {
 
     public static synchronized void saveSettings() {
         try {
-            File settingsFile = new File(SETTINGS_FILE);
-            settingsFile.getParentFile().mkdirs();
             properties.setProperty(FILTER_URGENTE_KEY, "true");
-            try (FileOutputStream fos = new FileOutputStream(settingsFile)) {
-                properties.store(fos, "NetNotify Agent - Configuracoes de Filtro de Mensagens");
-                logger.info("[FilterSettings] Configuracoes salvas com sucesso");
-            }
+            Map<String, String> updates = new LinkedHashMap<>();
+            updates.put(FILTER_BAIXO_KEY, properties.getProperty(FILTER_BAIXO_KEY, String.valueOf(DEFAULT_BAIXO)));
+            updates.put(FILTER_NORMAL_KEY, properties.getProperty(FILTER_NORMAL_KEY, String.valueOf(DEFAULT_NORMAL)));
+            updates.put(FILTER_ALTO_KEY, properties.getProperty(FILTER_ALTO_KEY, String.valueOf(DEFAULT_ALTO)));
+            updates.put(FILTER_URGENTE_KEY, "true");
+            PropertiesFileUtil.updateProperties(new File(SETTINGS_FILE), updates);
+            logger.info("[FilterSettings] Configuracoes salvas com sucesso");
         } catch (IOException e) {
             logger.warn("[FilterSettings] Erro ao salvar configuracoes: {}", e.getMessage());
         }
