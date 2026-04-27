@@ -24,12 +24,21 @@ if exist "%SETTINGS_FILE%" (
         if /I "!KEY!"=="java.executable" set "CFG_JAVA_EXE=!VAL!"
         if /I "!KEY!"=="java.home" set "CFG_JAVA_HOME=!VAL!"
     )
-    rem remover aspas caso existam
-    if defined CFG_JAVA_EXE set "CFG_JAVA_EXE=!CFG_JAVA_EXE:\"=!"
-    if defined CFG_JAVA_HOME set "CFG_JAVA_HOME=!CFG_JAVA_HOME:\"=!"
-    rem normalizar separadores invertidos
+    rem remover todas as aspas (nao apenas backslash-aspas)
+    if defined CFG_JAVA_EXE set "CFG_JAVA_EXE=!CFG_JAVA_EXE:"=!"
+    if defined CFG_JAVA_HOME set "CFG_JAVA_HOME=!CFG_JAVA_HOME:"=!"
+    rem normalizar separadores e remover barra final
     if defined CFG_JAVA_HOME (
         set "CFG_JAVA_HOME=!CFG_JAVA_HOME:/=\!"
+        if "!CFG_JAVA_HOME:~-1!"=="\" set "CFG_JAVA_HOME=!CFG_JAVA_HOME:~0,-1!"
+        rem se o usuario informou o executavel em vez do diretorio, tratar como java.executable
+        if /I "!CFG_JAVA_HOME:~-8!"=="java.exe" (
+            if not defined CFG_JAVA_EXE set "CFG_JAVA_EXE=!CFG_JAVA_HOME!"
+            set "CFG_JAVA_HOME="
+        ) else if /I "!CFG_JAVA_HOME:~-9!"=="javaw.exe" (
+            if not defined CFG_JAVA_EXE set "CFG_JAVA_EXE=!CFG_JAVA_HOME!"
+            set "CFG_JAVA_HOME="
+        )
     )
     if defined CFG_JAVA_EXE (
         if exist "!CFG_JAVA_EXE!" (
@@ -61,17 +70,16 @@ if defined JAVA_HOME (
     )
 )
 
-where javaw.exe >nul 2>&1
-if !errorlevel! equ 0 (
-    set "JAVA_EXE=javaw.exe"
-    goto :execute
+rem resolver caminho completo via PATH (evita usar nome simples em if exist)
+for /f %%P in ('where javaw.exe 2^>nul') do (
+    if not defined JAVA_EXE set "JAVA_EXE=%%P"
 )
+if defined JAVA_EXE goto :execute
 
-where java.exe >nul 2>&1
-if !errorlevel! equ 0 (
-    set "JAVA_EXE=java.exe"
-    goto :execute
+for /f %%P in ('where java.exe 2^>nul') do (
+    if not defined JAVA_EXE set "JAVA_EXE=%%P"
 )
+if defined JAVA_EXE goto :execute
 
 echo [ERRO] Java nao encontrado. Defina JAVA_HOME ou coloque java no PATH.
 pause
@@ -95,17 +103,38 @@ if not exist "!LIBS_DIR!" (
 )
 
 rem executar sem usar wildcards na variavel
-REM Verificar versão do Java (necessário Java 21+)
-for /f "tokens=3" %%g in ('"!JAVA_EXE!" -version 2^>^&1 ^| findstr /i "version"') do (
-    set JAVA_VER=%%g
+REM Verificar versao do Java (necessario Java 21+)
+REM javaw.exe pode nao imprimir versao; usar java.exe para a verificacao
+set "JAVA_CHECK_EXE="
+if /I "!JAVA_EXE:~-9!"=="javaw.exe" (
+    set "JAVA_CHECK_EXE=!JAVA_EXE:javaw.exe=java.exe!"
+) else (
+    set "JAVA_CHECK_EXE=!JAVA_EXE!"
 )
-set JAVA_VER=!JAVA_VER:"=!
-for /f "delims=. tokens=1" %%v in ("!JAVA_VER!") do set JAVA_MAJOR=%%v
+if not exist "!JAVA_CHECK_EXE!" set "JAVA_CHECK_EXE=!JAVA_EXE!"
+
+set "JAVA_VER="
+set "JAVA_MAJOR="
+set "JAVA_TMPFILE=%TEMP%\_jver%RANDOM%.tmp"
+"!JAVA_CHECK_EXE!" -version > "!JAVA_TMPFILE!" 2>&1
+if exist "!JAVA_TMPFILE!" (
+    for /f "tokens=3" %%g in ('findstr /i "version" "!JAVA_TMPFILE!"') do (
+        if not defined JAVA_VER set "JAVA_VER=%%g"
+    )
+    del "!JAVA_TMPFILE!" 2>nul
+)
+set "JAVA_VER=!JAVA_VER:"=!"
+for /f "delims=. tokens=1" %%v in ("!JAVA_VER!") do set "JAVA_MAJOR=%%v"
+if "!JAVA_MAJOR!"=="" (
+    echo Aviso: Nao foi possivel verificar versao do Java. Prosseguindo...
+    goto :run
+)
 if !JAVA_MAJOR! LSS 21 (
     echo Erro: Java 21+ e necessario. Versao atual: !JAVA_VER!
     pause
     exit /b 1
 )
+:run
 start "" "!JAVA_EXE!" --module-path "!LIBS_DIR!" --add-modules javafx.controls,javafx.web,javafx.swing,javafx.fxml,javafx.media -cp "!JAR_FILE!;!LIBS_DIR!\*" br.gov.pb.der.netnotifyagent.NetnotifyagentLauncher
 
 exit /b 0

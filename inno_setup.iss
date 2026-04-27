@@ -58,6 +58,7 @@ var
 	PageAgent: TInputQueryWizardPage;
 	JavaFound: Boolean;
 	JavaVersion: String;
+	JavaInputPath: String;
 
 function DetectJavaVersion: String;
 var
@@ -96,7 +97,7 @@ begin
 	{ Valida se o Java foi fornecido quando nao foi detectado }
 	if (not JavaFound) and (PageJava.Values[0] = '') then
 	begin
-		MsgBox('Java 17 ou superior nao foi detectado no sistema.' + #13#10 + #13#10 +
+		MsgBox('Java 21 ou superior nao foi detectado no sistema.' + #13#10 + #13#10 +
 			'Por favor, forneça o caminho para o Java instalado para continuar.' + #13#10 + #13#10 +
 			'Exemplo: C:\Program Files\Java\jdk-21', 
 			mbError, MB_OK);
@@ -205,8 +206,15 @@ begin
 	SettingsContent := SettingsContent + '# Caso nao definido, o launcher usara JAVA_HOME ou o java do PATH.' + CRLF;
 
 	if PageJava.Values[0] <> '' then
-		SettingsContent := SettingsContent + 'java.home=' + PageJava.Values[0] + CRLF
-	else
+	begin
+		{ Remover aspas que o usuario possa ter digitado ao redor do caminho }
+		JavaInputPath := PageJava.Values[0];
+		while (Length(JavaInputPath) >= 2) and
+		      (JavaInputPath[1] = '"') and
+		      (JavaInputPath[Length(JavaInputPath)] = '"') do
+			JavaInputPath := Copy(JavaInputPath, 2, Length(JavaInputPath) - 2);
+		SettingsContent := SettingsContent + 'java.home=' + JavaInputPath + CRLF
+	end else
 		SettingsContent := SettingsContent + '# java.home=' + CRLF;
 
 	SettingsContent := SettingsContent + CRLF;
