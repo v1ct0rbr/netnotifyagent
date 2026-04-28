@@ -1,0 +1,141 @@
+@echo off
+setlocal EnableDelayedExpansion
+
+set "SHOULD_PAUSE=0"
+for %%A in (%*) do (
+    if /I "%%~A"=="/pause" set "SHOULD_PAUSE=1"
+)
+
+call :main
+exit /b %errorlevel%
+
+:main
+
+rem entrar no diretório do script
+cd /d "%~dp0"
+set "BASE_DIR=%CD%"
+set "JAR_FILE="
+for %%F in ("%BASE_DIR%\netnotifyagent-*.jar") do (
+    set "JAR_FILE=%%~fF"
+    goto :afterJarSearch
+)
+:afterJarSearch
+set "LIBS_DIR=%BASE_DIR%\libs"
+set "SETTINGS_FILE=%BASE_DIR%\resources\settings.properties"
+
+rem tentar localizar java via settings.properties (java.executable/java.home)
+set "JAVA_EXE="
+set "CFG_JAVA_EXE="
+set "CFG_JAVA_HOME="
+if exist "%SETTINGS_FILE%" (
+    for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%SETTINGS_FILE%") do (
+        set "KEY=%%~A"
+        set "VAL=%%~B"
+        if /I "!KEY!"=="java.executable" set "CFG_JAVA_EXE=!VAL!"
+        if /I "!KEY!"=="java.home" set "CFG_JAVA_HOME=!VAL!"
+    )
+    rem remover todas as aspas (nao apenas backslash-aspas)
+    if defined CFG_JAVA_EXE set "CFG_JAVA_EXE=!CFG_JAVA_EXE:"=!"
+    if defined CFG_JAVA_HOME set "CFG_JAVA_HOME=!CFG_JAVA_HOME:"=!"
+    rem normalizar separadores e remover barra final
+    if defined CFG_JAVA_HOME (
+        set "CFG_JAVA_HOME=!CFG_JAVA_HOME:/=\!"
+        if "!CFG_JAVA_HOME:~-1!"=="\" set "CFG_JAVA_HOME=!CFG_JAVA_HOME:~0,-1!"
+        rem se o usuario informou o executavel em vez do diretorio, tratar como java.executable
+        if /I "!CFG_JAVA_HOME:~-8!"=="java.exe" (
+            if not defined CFG_JAVA_EXE set "CFG_JAVA_EXE=!CFG_JAVA_HOME!"
+            set "CFG_JAVA_HOME="
+        ) else if /I "!CFG_JAVA_HOME:~-9!"=="javaw.exe" (
+            if not defined CFG_JAVA_EXE set "CFG_JAVA_EXE=!CFG_JAVA_HOME!"
+            set "CFG_JAVA_HOME="
+        )
+    )
+    if defined CFG_JAVA_EXE (
+        if exist "!CFG_JAVA_EXE!" (
+            set "JAVA_EXE=!CFG_JAVA_EXE!"
+            goto :execute
+        )
+    )
+    if defined CFG_JAVA_HOME (
+        if exist "!CFG_JAVA_HOME!\bin\javaw.exe" (
+            set "JAVA_EXE=!CFG_JAVA_HOME!\bin\javaw.exe"
+            goto :execute
+        )
+        if exist "!CFG_JAVA_HOME!\bin\java.exe" (
+            set "JAVA_EXE=!CFG_JAVA_HOME!\bin\java.exe"
+            goto :execute
+        )
+    )
+)
+
+rem localizar java via ambiente (JAVA_HOME/PATH)
+if defined JAVA_HOME (
+    if exist "%JAVA_HOME%\bin\javaw.exe" (
+        set "JAVA_EXE=%JAVA_HOME%\bin\javaw.exe"
+        goto :execute
+    )
+    if exist "%JAVA_HOME%\bin\java.exe" (
+        set "JAVA_EXE=%JAVA_HOME%\bin\java.exe"
+        goto :execute
+    )
+)
+
+rem resolver caminho completo via PATH (evita usar nome simples em if exist)
+for /f %%P in ('where javaw.exe 2^>nul') do (
+    if not defined JAVA_EXE set "JAVA_EXE=%%P"
+)
+if defined JAVA_EXE goto :execute
+
+for /f %%P in ('where java.exe 2^>nul') do (
+    if not defined JAVA_EXE set "JAVA_EXE=%%P"
+)
+if defined JAVA_EXE goto :execute
+
+echo [ERRO] Java nao encontrado. Defina JAVA_HOME ou coloque java no PATH.
+if "!SHOULD_PAUSE!"=="1" pause
+exit /b 1
+
+:execute
+if not defined JAR_FILE if not exist "!JAR_FILE!" (
+    echo [ERRO] Arquivo principal nao encontrado
+    echo Procurando: !JAR_FILE!
+    echo.
+    echo Certifique-se de que todos os arquivos foram extraidos corretamente.
+    if "!SHOULD_PAUSE!"=="1" pause
+    exit /b 1
+)
+
+if not exist "!LIBS_DIR!" (
+    echo [ERRO] Diretorio libs nao encontrado
+    echo Procurando: !LIBS_DIR!
+    if "!SHOULD_PAUSE!"=="1" pause
+    exit /b 1
+)
+
+rem executar sem usar wildcards na variavel
+REM Verificar versao do Java (necessario Java 21+)
+REM javaw.exe pode nao imprimir versao; usar java.exe para a verificacao
+set "JAVA_CHECK_EXE="
+if /I "!JAVA_EXE:~-9!"=="javaw.exe" (
+    set "JAVA_CHECK_EXE=!JAVA_EXE:javaw.exe=java.exe!"
+) else (
+    set "JAVA_CHECK_EXE=!JAVA_EXE!"
+)
+if not exist "!JAVA_CHECK_EXE!" set "JAVA_CHECK_EXE=!JAVA_EXE!"
+
+set "JAVA_MAJOR="
+set "_JCEXE=!JAVA_CHECK_EXE!"
+for /f "usebackq" %%v in (`powershell -NoProfile -Command "try{$i=[System.Diagnostics.ProcessStartInfo]::new('%_JCEXE%','-version');$i.RedirectStandardError=$true;$i.UseShellExecute=$false;$p=[System.Diagnostics.Process]::Start($i);$o=$p.StandardError.ReadToEnd();$p.WaitForExit();if($o-match('version\s+'+[char]34+'(\d+)')){$Matches[1]}else{''}}catch{''}"`) do set "JAVA_MAJOR=%%v"
+if "!JAVA_MAJOR!"=="" (
+    echo Aviso: Nao foi possivel verificar versao do Java. Prosseguindo...
+    goto :run
+)
+if !JAVA_MAJOR! LSS 21 (
+    echo Erro: Java 21+ e necessario. Versao atual: !JAVA_MAJOR!
+    if "!SHOULD_PAUSE!"=="1" pause
+    exit /b 1
+)
+:run
+start "" "!JAVA_EXE!" --module-path "!LIBS_DIR!" --add-modules javafx.controls,javafx.web,javafx.swing,javafx.fxml,javafx.media -cp "!JAR_FILE!;!LIBS_DIR!\*" br.gov.pb.der.netnotifyagent.NetnotifyagentLauncher
+
+exit /b 0

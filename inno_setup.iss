@@ -1,5 +1,5 @@
 #define AppName "NetNotify Agent"
-#define AppVersion "1.5.0"
+#define AppVersion "1.5.1"
 #define AppPublisher "DER-PB"
 
 [Setup]
@@ -29,6 +29,7 @@ Source: "target\install-service.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\uninstall-service.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\uninstall-service.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\run-hidden.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run.sh"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\refresh-user-tasks.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\run-refresh-user-tasks.bat"; DestDir: "{app}"; Flags: ignoreversion
@@ -205,10 +206,17 @@ begin
 	SettingsContent := SettingsContent + '# Defina o caminho raiz para a instalacao do Java.' + CRLF;
 	SettingsContent := SettingsContent + '# Caso nao definido, o launcher usara JAVA_HOME ou o java do PATH.' + CRLF;
 
+	{ Determina o caminho efetivo do Java: preferencia para o digitado, depois o detectado }
 	if PageJava.Values[0] <> '' then
+		JavaInputPath := PageJava.Values[0]
+	else if JavaFound then
+		JavaInputPath := JavaVersion
+	else
+		JavaInputPath := '';
+
+	if JavaInputPath <> '' then
 	begin
 		{ Remover aspas que o usuario possa ter digitado ao redor do caminho }
-		JavaInputPath := PageJava.Values[0];
 		while (Length(JavaInputPath) >= 2) and
 		      (JavaInputPath[1] = '"') and
 		      (JavaInputPath[Length(JavaInputPath)] = '"') do

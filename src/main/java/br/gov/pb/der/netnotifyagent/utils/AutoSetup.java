@@ -5,7 +5,6 @@ import java.io.File;
 import java.io.InputStreamReader;
 import java.util.concurrent.TimeUnit;
 
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 /**
@@ -18,6 +17,7 @@ public class AutoSetup {
 
 
     private static final String TASK_NAME = "NetNotifyAgent";
+    private static final String TASK_PREFIX = "NetNotifyAgent-";
     private static final boolean IS_WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
     private static final String INSTALLATION_DIR = findInstallationDir();
 
@@ -33,6 +33,12 @@ public class AutoSetup {
 
         try {
             logger.info("[AutoSetup] Iniciando verificação de Scheduled Task...");
+
+            if (hasInstallerManagedTasks()) {
+                logger.info("[AutoSetup] Tasks por usuário já existem - pulando criação da task legada");
+                removeLegacyTaskIfPresent();
+                return;
+            }
             
             // Verificar se a task já existe
             if (taskExists()) {
@@ -47,14 +53,8 @@ public class AutoSetup {
             
             // Criar a task
             createScheduledTask();
-            
-            // Aguardar 3 segundos após criação
-            waitWithMessage(3, "Iniciando Scheduled Task");
-            
-            // Iniciar a task imediatamente
-            startScheduledTask();
-            
-            logger.info("[AutoSetup] ✓ Scheduled Task configurada e iniciada com sucesso");
+
+            logger.info("[AutoSetup] ✓ Scheduled Task configurada com sucesso para o próximo logon");
             
         } catch (Exception e) {
             // Não bloquear a inicialização da aplicação se o AutoSetup falhar
@@ -79,6 +79,60 @@ public class AutoSetup {
     }
 
     /**
+     * Detecta se a instalação atual já usa tasks por usuário criadas pelos scripts
+     * install-service.ps1 / refresh-user-tasks.ps1. Nesse caso, a task legada
+     * "NetNotifyAgent" causaria inicialização duplicada no logon.
+     */
+    private static boolean hasInstallerManagedTasks() throws Exception {
+        ProcessBuilder pb = new ProcessBuilder("schtasks", "/query", "/fo", "csv", "/nh");
+        pb.redirectErrorStream(true);
+
+        Process process = pb.start();
+        boolean foundManagedTask = false;
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.contains("\\" + TASK_PREFIX) || line.contains("\\NetNotifyAgent-RefreshUserTasks")) {
+                    foundManagedTask = true;
+                    break;
+                }
+            }
+        }
+
+        int exitCode = process.waitFor();
+        return exitCode == 0 && foundManagedTask;
+    }
+
+    private static void removeLegacyTaskIfPresent() {
+        try {
+            if (!taskExists()) {
+                return;
+            }
+
+            ProcessBuilder pb = new ProcessBuilder("schtasks", "/delete", "/tn", TASK_NAME, "/f");
+            pb.redirectErrorStream(true);
+
+            Process process = pb.start();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    logger.info("[AutoSetup] schtasks delete: " + line);
+                }
+            }
+
+            int exitCode = process.waitFor();
+            if (exitCode == 0) {
+                logger.info("[AutoSetup] Scheduled Task legada removida: " + TASK_NAME);
+            } else {
+                logger.info("[AutoSetup] Aviso: falha ao remover task legada. Exit code: " + exitCode);
+            }
+        } catch (Exception e) {
+            logger.info("[AutoSetup] Aviso: não foi possível remover task legada: " + e.getMessage());
+        }
+    }
+
+    /**
      * Cria a Scheduled Task para iniciar na próxima vez que o usuário logar
      */
     private static void createScheduledTask() throws Exception {
@@ -86,6 +140,7 @@ public class AutoSetup {
         
         // Caminho para run.bat (script launcher)
         File runBat = new File(INSTALLATION_DIR, "run.bat");
+        File hiddenLauncher = new File(INSTALLATION_DIR, "run-hidden.vbs");
         
         if (!runBat.exists()) {
             // Tentar encontrar em diretórios alternativos
@@ -110,13 +165,21 @@ public class AutoSetup {
             }
         }
 
+        if (!hiddenLauncher.exists()) {
+            hiddenLauncher = new File(runBat.getParentFile(), "run-hidden.vbs");
+        }
+
         // Comando para schtasks /create
-        // Usar ComSpec /c para executar o run.bat
+        // Preferir wscript.exe para evitar janelas de console no logon.
+        String taskCommand = hiddenLauncher.exists()
+                ? "wscript.exe //B //nologo \"" + hiddenLauncher.getAbsolutePath() + "\""
+                : "cmd.exe /c \"" + runBat.getAbsolutePath() + "\"";
+
         ProcessBuilder pb = new ProcessBuilder(
             "schtasks",
             "/create",
             "/tn", TASK_NAME,
-            "/tr", "cmd.exe /c \"" + runBat.getAbsolutePath() + "\"",
+            "/tr", taskCommand,
             "/sc", "onlogon",
             "/rl", "highest",
             "/f"
@@ -139,32 +202,6 @@ public class AutoSetup {
         }
         
         logger.info("[AutoSetup] Scheduled Task criada com sucesso");
-    }
-
-    /**
-     * Inicia a Scheduled Task imediatamente
-     */
-    private static void startScheduledTask() throws Exception {
-        ProcessBuilder pb = new ProcessBuilder("schtasks", "/run", "/tn", TASK_NAME);
-        pb.redirectErrorStream(true);
-        
-        Process process = pb.start();
-        
-        // Capturar output
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                logger.info("[AutoSetup] schtasks run: " + line);
-            }
-        }
-        
-        int exitCode = process.waitFor();
-        if (exitCode != 0 && exitCode != 1) {
-            // Ignorar exit code 1 pois pode significar que a task já está em execução
-            logger.info("[AutoSetup] Aviso: schtasks /run retornou exit code: " + exitCode);
-        }
-        
-        logger.info("[AutoSetup] Scheduled Task iniciada");
     }
 
     /**

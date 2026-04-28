@@ -222,5 +222,3 @@ if "%_REGHOME32:~-1%"==" " set "_REGHOME32=%_REGHOME32:~0,-1%"
 
 call :try_java_home "%_REGHOME32%"
 exit /b 0
-
-

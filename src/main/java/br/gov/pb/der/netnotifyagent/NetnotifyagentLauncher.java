@@ -16,6 +16,7 @@ import java.util.jar.JarFile;
 
 import br.gov.pb.der.netnotifyagent.utils.AutoSetup;
 import br.gov.pb.der.netnotifyagent.utils.Constants;
+import br.gov.pb.der.netnotifyagent.utils.SingleInstanceLock;
 
 /**
  * Launcher inteligente que configura JavaFX automaticamente
@@ -34,6 +35,11 @@ public class NetnotifyagentLauncher {
         System.out.println("=== NetNotify Agent Launcher ===");
 
         try {
+            if (!SingleInstanceLock.acquire()) {
+                System.out.println("NetNotify Agent ja esta em execucao. Encerrando launcher duplicado.");
+                return;
+            }
+
             // Se o JDK carregou o JavaFX errado (ex: JavaFX 17 bundled), relançar
             // com o --module-path apontando para libs/ que contém o JavaFX 22.
             if (!isCorrectJavaFXVersion()) {

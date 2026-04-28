@@ -150,7 +150,8 @@ function Get-InteractiveUsernames {
 
 function Ensure-ScheduledTaskForUsers {
     param(
-        [string]$ServiceBat
+        [string]$LauncherEngine,
+        [string]$LauncherArgs
     )
 
     Import-Module ScheduledTasks -ErrorAction Stop
@@ -173,7 +174,7 @@ function Ensure-ScheduledTaskForUsers {
             # ignore
         }
         try {
-            $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ServiceBat`""
+            $action = New-ScheduledTaskAction -Execute $LauncherEngine -Argument $LauncherArgs
             $trigger = New-ScheduledTaskTrigger -AtLogOn -User $account
             $principal = New-ScheduledTaskPrincipal -UserId $account -RunLevel Highest -LogonType Interactive
             Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
@@ -280,8 +281,13 @@ if (-not (Test-Path $RunBat -PathType Leaf)) {
     Throw-Error "Erro: script run.bat não encontrado em $InstallPath"
 }
 
+$HiddenLauncher = Join-Path $InstallPath 'run-hidden.vbs'
+if (-not (Test-Path $HiddenLauncher -PathType Leaf)) {
+    Throw-Error "Erro: script run-hidden.vbs não encontrado em $InstallPath"
+}
+
 Write-Host 'Garantindo tarefas agendadas para usuários logados...'
-Ensure-ScheduledTaskForUsers -ServiceBat $RunBat
+Ensure-ScheduledTaskForUsers -LauncherEngine 'wscript.exe' -LauncherArgs "//B //nologo `"$HiddenLauncher`""
 
 Write-Host 'Configurando tarefa periódica para atualização de tarefas de usuário...'
 Ensure-PeriodicRefreshTask -InstallPath $InstallPath

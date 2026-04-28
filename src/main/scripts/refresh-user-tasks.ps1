@@ -28,9 +28,9 @@ if (-not $InstallPath) {
     }
 }
 
-$ServiceBat = Join-Path $InstallPath 'run.bat'
-if (-not (Test-Path $ServiceBat -PathType Leaf)) {
-    Write-Host "Script run.bat não encontrado em $ServiceBat. Encerrando."
+$HiddenLauncher = Join-Path $InstallPath 'run-hidden.vbs'
+if (-not (Test-Path $HiddenLauncher -PathType Leaf)) {
+    Write-Host "Script run-hidden.vbs não encontrado em $HiddenLauncher. Encerrando."
     exit 0
 }
 
@@ -136,7 +136,8 @@ function Get-TargetUsernames {
 
 function Ensure-ScheduledTaskForUsers {
     param(
-        [string]$ServiceBat
+        [string]$LauncherEngine,
+        [string]$LauncherArgs
     )
 
     $users = Get-TargetUsernames
@@ -161,7 +162,7 @@ function Ensure-ScheduledTaskForUsers {
                 # ignore
             }
             try {
-                $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ServiceBat`""
+                $action = New-ScheduledTaskAction -Execute $LauncherEngine -Argument $LauncherArgs
                 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $account
                 $principal = New-ScheduledTaskPrincipal -UserId $account -RunLevel Highest -LogonType Interactive
                 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
@@ -176,7 +177,7 @@ function Ensure-ScheduledTaskForUsers {
                 # ignore
             }
             try {
-                $taskCommand = "cmd.exe /c `"$ServiceBat`""
+                $taskCommand = "$LauncherEngine $LauncherArgs"
                 schtasks.exe /Create /TN $taskName /TR $taskCommand /SC ONLOGON /RU $account /RL HIGHEST /F | Out-Null
                 Write-Host "Tarefa $taskName criada/atualizada (via schtasks.exe) para $($user) (conta: $account)"
             } catch {
@@ -187,5 +188,5 @@ function Ensure-ScheduledTaskForUsers {
 }
 
 Write-Host 'Atualizando tarefas agendadas de logon para usuários atuais...'
-Ensure-ScheduledTaskForUsers -ServiceBat $ServiceBat
+Ensure-ScheduledTaskForUsers -LauncherEngine 'wscript.exe' -LauncherArgs "//B //nologo `"$HiddenLauncher`""
 Write-Host 'Atualização concluída.'

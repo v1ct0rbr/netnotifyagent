@@ -219,7 +219,8 @@ function Use-ScheduledTasksModule {
 
 function Ensure-ScheduledTaskForUsers {
     param(
-        [string]$ServiceBat
+        [string]$LauncherEngine,
+        [string]$LauncherArgs
     )
 
     $users = Get-TargetUsernames
@@ -244,7 +245,7 @@ function Ensure-ScheduledTaskForUsers {
                 # ignore
             }
             try {
-                $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$ServiceBat`""
+                $action = New-ScheduledTaskAction -Execute $LauncherEngine -Argument $LauncherArgs
                 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $account
                 $principal = New-ScheduledTaskPrincipal -UserId $account -RunLevel Highest -LogonType Interactive
                 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
@@ -259,7 +260,7 @@ function Ensure-ScheduledTaskForUsers {
                 # ignore
             }
             try {
-                $taskCommand = "cmd.exe /c `"$ServiceBat`""
+                $taskCommand = "$LauncherEngine $LauncherArgs"
                 schtasks.exe /Create /TN $taskName /TR $taskCommand /SC ONLOGON /RU $account /RL HIGHEST /F | Out-Null
                 Write-Host ('Tarefa {0} criada (via schtasks.exe) para {1} (conta: {2})' -f $taskName, $user, $account)
             } catch {
@@ -377,8 +378,16 @@ if (-not (Test-Path $RunBat -PathType Leaf)) {
     Throw-Error "Erro: script run.bat não encontrado em $InstallPath"
 }
 
+$HiddenLauncher = Join-Path $InstallPath 'run-hidden.vbs'
+if (-not (Test-Path $HiddenLauncher -PathType Leaf)) {
+    Throw-Error "Erro: script run-hidden.vbs não encontrado em $InstallPath"
+}
+
+$TaskLauncherEngine = 'wscript.exe'
+$TaskLauncherArgs = "//B //nologo `"$HiddenLauncher`""
+
 Write-Host 'Garantindo tarefas agendadas para usuários logados...'
-Ensure-ScheduledTaskForUsers -ServiceBat $RunBat
+Ensure-ScheduledTaskForUsers -LauncherEngine $TaskLauncherEngine -LauncherArgs $TaskLauncherArgs
 
 Write-Host 'Configurando tarefa periódica para atualização de tarefas de usuário...'
 Ensure-PeriodicRefreshTask -InstallPath $InstallPath
