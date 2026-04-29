@@ -41,4 +41,4 @@ if "%QUIET%"=="0" (
 	echo Consulte o log em "%LOG_FILE%".
 )
 
-exit /b %EXITCODE%
+exit %EXITCODE%
