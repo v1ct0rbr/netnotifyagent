@@ -223,4 +223,15 @@ if "%_REGHOME32:~-1%"==" " set "_REGHOME32=%_REGHOME32:~0,-1%"
 call :try_java_home "%_REGHOME32%"
 exit /b 0
 
+:check_version
+set "%~2="
+set "_CV_EXE=%~1"
+if "%_CV_EXE%"=="" exit /b 0
+if not exist "%_CV_EXE%" exit /b 0
+set "_CV_EXE_CHECK=%_CV_EXE%"
+if /I "%_CV_EXE_CHECK:~-9%"=="javaw.exe" set "_CV_EXE_CHECK=%_CV_EXE_CHECK:javaw.exe=java.exe%"
+if not exist "%_CV_EXE_CHECK%" set "_CV_EXE_CHECK=%_CV_EXE%"
+for /f "usebackq" %%v in (`powershell -NoProfile -Command "try{$i=[System.Diagnostics.ProcessStartInfo]::new('%_CV_EXE_CHECK%','-version');$i.RedirectStandardError=$true;$i.UseShellExecute=$false;$p=[System.Diagnostics.Process]::Start($i);$o=$p.StandardError.ReadToEnd();$p.WaitForExit();if($o-match('version\s+'+[char]34+'(\d+)')){$Matches[1]}else{''}}catch{''}"`) do set "%~2=%%v"
+exit /b 0
+
 
