@@ -25,6 +25,7 @@
                 <include>*.bat</include>
                 <include>*.ps1</include>
                 <include>*.sh</include>
+                <include>*.vbs</include>
             </includes>
             <fileMode>0755</fileMode>
         </fileSet>

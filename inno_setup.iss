@@ -1,5 +1,5 @@
 #define AppName "NetNotify Agent"
-#define AppVersion "1.5.2"
+#define AppVersion "1.6"
 #define AppPublisher "DER-PB"
 
 [Setup]
@@ -20,7 +20,7 @@ UsePreviousAppDir=yes
 Name: "{app}\resources"; Permissions: users-modify
 
 [Files]
-Source: "target\netnotifyagent-1.5-SNAPSHOT.jar"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\netnotifyagent-1.6-SNAPSHOT.jar"; DestDir: "{app}"; Flags: ignoreversion
 Source: "target\libs\*"; DestDir: "{app}\libs"; Flags: recursesubdirs ignoreversion createallsubdirs
 Source: "target\resources\images\icon.ico"; DestDir: "{app}\resources\images"; Flags: ignoreversion
 Source: "target\resources\settings.properties"; DestDir: "{app}\resources"; Flags: ignoreversion

@@ -15,8 +15,8 @@ rem entrar no diretório do script
 cd /d "%~dp0"
 set "BASE_DIR=%CD%"
 set "JAR_FILE="
-for %%F in ("%BASE_DIR%\netnotifyagent-*.jar") do (
-    set "JAR_FILE=%%~fF"
+for /f "delims=" %%F in ('dir /b /a:-d /o:-d "%BASE_DIR%\netnotifyagent-*.jar" 2^>nul') do (
+    set "JAR_FILE=%BASE_DIR%\%%F"
     goto :afterJarSearch
 )
 :afterJarSearch
@@ -65,7 +65,15 @@ if "!SHOULD_PAUSE!"=="1" pause
 exit /b 1
 
 :execute
-if not defined JAR_FILE if not exist "!JAR_FILE!" (
+if not defined JAR_FILE (
+    echo [ERRO] Arquivo principal nao encontrado
+    echo Procurando: !BASE_DIR!\netnotifyagent-*.jar
+    echo.
+    echo Certifique-se de que todos os arquivos foram extraidos corretamente.
+    if "!SHOULD_PAUSE!"=="1" pause
+    exit /b 1
+)
+if not exist "!JAR_FILE!" (
     echo [ERRO] Arquivo principal nao encontrado
     echo Procurando: !JAR_FILE!
     echo.
@@ -233,5 +241,4 @@ if /I "%_CV_EXE_CHECK:~-9%"=="javaw.exe" set "_CV_EXE_CHECK=%_CV_EXE_CHECK:javaw
 if not exist "%_CV_EXE_CHECK%" set "_CV_EXE_CHECK=%_CV_EXE%"
 for /f "usebackq" %%v in (`powershell -NoProfile -Command "try{$i=[System.Diagnostics.ProcessStartInfo]::new('%_CV_EXE_CHECK%','-version');$i.RedirectStandardError=$true;$i.UseShellExecute=$false;$p=[System.Diagnostics.Process]::Start($i);$o=$p.StandardError.ReadToEnd();$p.WaitForExit();if($o-match('version\s+'+[char]34+'(\d+)')){$Matches[1]}else{''}}catch{''}"`) do set "%~2=%%v"
 exit /b 0
-
 

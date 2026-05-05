@@ -77,12 +77,12 @@ if not exist "%ZIP_PATH%" (
 echo Encerrando NetNotify Agent, se estiver em execucao...
 >> "%LOG_FILE%" echo [INFO] Stopping running NetNotify Agent processes...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process ^| Where-Object { ($_.Name -eq 'java.exe' -or $_.Name -eq 'javaw.exe') -and ($_.CommandLine -like '*%PROCESS_HINT%*' -or $_.CommandLine -like '*NetnotifyagentLauncher*') } ^| ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
-timeout /t 2 /nobreak >nul
+%SystemRoot%\System32\timeout.exe /t 2 /nobreak >nul
 
 echo Extraindo pacote...
 >> "%LOG_FILE%" echo [INFO] Extracting update package...
 mkdir "%EXTRACT_DIR%" >nul 2>&1
-tar.exe -xf "%ZIP_PATH%" -C "%EXTRACT_DIR%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%ZIP_PATH%' -DestinationPath '%EXTRACT_DIR%' -Force"
 if errorlevel 1 (
     echo [ERRO] Falha ao extrair o pacote de atualizacao.
     echo Log: %LOG_FILE%
@@ -120,7 +120,7 @@ if errorlevel 1 (
 echo Iniciando etapa final da atualizacao...
 echo Log detalhado: %LOG_FILE%
 >> "%LOG_FILE%" echo [INFO] Starting final stage helper: %APPLY_SCRIPT%
-start "NetNotify Agent Refresh" "%ComSpec%" /k call "%APPLY_SCRIPT%" "%INSTALL_PATH%" "%EXTRACT_DIR%" "%TMP_ROOT%" "%LOG_FILE%"
+start "NetNotify Agent Refresh" "%ComSpec%" /c call "%APPLY_SCRIPT%" "%INSTALL_PATH%" "%EXTRACT_DIR%" "%TMP_ROOT%" "%LOG_FILE%"
 if errorlevel 1 (
     echo [ERRO] Nao foi possivel iniciar a etapa final da atualizacao.
     del "%APPLY_SCRIPT%" >nul 2>&1
@@ -148,7 +148,23 @@ exit /b 0
     echo echo Started: %%date%% %%time%%^>^>"%%LOG_FILE%%"
     echo echo [INFO] Install path: %%INSTALL_PATH%%^>^>"%%LOG_FILE%%"
     echo echo [INFO] Extract dir: %%EXTRACT_DIR%%^>^>"%%LOG_FILE%%"
-    echo timeout /t 2 /nobreak ^>nul
+    echo %%SystemRoot%%\System32\timeout.exe /t 2 /nobreak ^>nul
+    echo echo [INFO] Garantindo encerramento de processos antigos...^>^>"%%LOG_FILE%%"
+    echo powershell -NoProfile -ExecutionPolicy Bypass -Command "$procs = @(Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'java.exe' -or $_.Name -eq 'javaw.exe') -and ($_.CommandLine -like '*netnotifyagent-*' -or $_.CommandLine -like '*NetnotifyagentLauncher*') }); foreach ($p in $procs) { try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop; Add-Content -LiteralPath '%%LOG_FILE%%' -Value ('[INFO] Processo encerrado: PID ' + $p.ProcessId) } catch { Add-Content -LiteralPath '%%LOG_FILE%%' -Value ('[ERRO] Falha ao encerrar PID ' + $p.ProcessId + ': ' + $_.Exception.Message); exit 1 } }" ^>nul 2^>^&1
+    echo if errorlevel 1 ^(
+    echo     echo [ERRO] Nao foi possivel encerrar os processos antigos do agente.
+    echo     echo [ERRO] Nao foi possivel encerrar os processos antigos do agente.^>^>"%%LOG_FILE%%"
+    echo     goto cleanup
+    echo ^)
+    echo %%SystemRoot%%\System32\timeout.exe /t 2 /nobreak ^>nul
+    echo echo. ^>"%%INSTALL_PATH%%\.write_test" 2^>nul
+    echo if not exist "%%INSTALL_PATH%%\.write_test" ^(
+    echo     echo [ERRO] Sem permissao de escrita em: %%INSTALL_PATH%%
+    echo     echo [ERRO] Sem permissao de escrita em: %%INSTALL_PATH%%^>^>"%%LOG_FILE%%"
+    echo     echo Execute refresh-agent.bat como Administrador.
+    echo     goto cleanup
+    echo ^)
+    echo del "%%INSTALL_PATH%%\.write_test" ^>nul 2^>^&1
     echo echo Copiando arquivos para "%%INSTALL_PATH%%"...
     echo echo [INFO] Copying files...^>^>"%%LOG_FILE%%"
     echo robocopy "%%EXTRACT_DIR%%" "%%INSTALL_PATH%%" /E /R:3 /W:1 /NFL /NDL /NJH /NJS /NP
@@ -161,6 +177,8 @@ exit /b 0
     echo     echo [ERRO] Verifique as permissoes de escrita em %%INSTALL_PATH%%.^>^>"%%LOG_FILE%%"
     echo     goto cleanup
     echo ^)
+    echo echo [INFO] Removendo JARs antigos apos a copia...^>^>"%%LOG_FILE%%"
+    echo powershell -NoProfile -ExecutionPolicy Bypass -Command "$jars = @(Get-ChildItem -LiteralPath '%%INSTALL_PATH%%' -Filter 'netnotifyagent-*.jar' | Sort-Object LastWriteTime -Descending); if ($jars.Count -gt 0) { Add-Content -LiteralPath '%%LOG_FILE%%' -Value ('[INFO] Mantendo JAR: ' + $jars[0].Name); $jars | Select-Object -Skip 1 | ForEach-Object { Add-Content -LiteralPath '%%LOG_FILE%%' -Value ('[INFO] Excluindo JAR antigo: ' + $_.Name); Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop } }" ^>nul 2^>^&1
     echo if not exist "%%INSTALL_PATH%%\run.bat" ^(
     echo     echo [ERRO] O run.bat nao ficou disponivel na pasta de instalacao.
     echo     echo [ERRO] O run.bat nao ficou disponivel na pasta de instalacao.^>^>"%%LOG_FILE%%"
@@ -168,12 +186,7 @@ exit /b 0
     echo ^)
     echo echo Reiniciando NetNotify Agent...
     echo echo [INFO] Restarting NetNotify Agent...^>^>"%%LOG_FILE%%"
-    echo start "" "%%INSTALL_PATH%%\run.bat"
-    echo if errorlevel 1 ^(
-    echo     echo [ERRO] Nao foi possivel reiniciar o agente.
-    echo     echo [ERRO] Nao foi possivel reiniciar o agente.^>^>"%%LOG_FILE%%"
-    echo     goto cleanup
-    echo ^)
+    echo if exist "%%INSTALL_PATH%%\run-hidden.vbs" ^(start "" wscript.exe //B //nologo "%%INSTALL_PATH%%\run-hidden.vbs"^) else ^(start "" "%ComSpec%" /c "%%INSTALL_PATH%%\run.bat"^)
     echo echo Atualizacao concluida com sucesso.
     echo echo [INFO] Atualizacao concluida com sucesso.^>^>"%%LOG_FILE%%"
     echo :cleanup
