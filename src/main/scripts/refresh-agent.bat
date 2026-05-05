@@ -42,6 +42,7 @@ set "TMP_ROOT=%TEMP%\NetNotifyAgentRefresh_%RANDOM%_%RANDOM%"
 set "ZIP_PATH=%TMP_ROOT%\%ZIP_NAME%"
 set "EXTRACT_DIR=%TMP_ROOT%\extracted"
 set "APPLY_SCRIPT=%TEMP%\NetNotifyAgentApply_%RANDOM%_%RANDOM%.bat"
+set "LAUNCHER_VBS=%TEMP%\NetNotifyAgentApply_%RANDOM%_%RANDOM%.vbs"
 
 call :log "[INFO] Install path: %INSTALL_PATH%"
 call :log "[INFO] Temporary folder: %TMP_ROOT%"
@@ -117,22 +118,34 @@ if errorlevel 1 (
     exit /b 1
 )
 
+call :write_launcher_vbs
+if errorlevel 1 (
+    echo [ERRO] Nao foi possivel preparar o inicializador em background.
+    del "%APPLY_SCRIPT%" >nul 2>&1
+    echo Log: %LOG_FILE%
+    >> "%LOG_FILE%" echo [ERRO] Nao foi possivel preparar o inicializador em background.
+    call :cleanup
+    exit /b 1
+)
+
 echo Iniciando etapa final da atualizacao...
 echo Log detalhado: %LOG_FILE%
 >> "%LOG_FILE%" echo [INFO] Starting final stage helper: %APPLY_SCRIPT%
-start "NetNotify Agent Refresh" "%ComSpec%" /c call "%APPLY_SCRIPT%" "%INSTALL_PATH%" "%EXTRACT_DIR%" "%TMP_ROOT%" "%LOG_FILE%"
+wscript.exe //B //nologo "%LAUNCHER_VBS%" "%APPLY_SCRIPT%" "%INSTALL_PATH%" "%EXTRACT_DIR%" "%TMP_ROOT%" "%LOG_FILE%"
 if errorlevel 1 (
     echo [ERRO] Nao foi possivel iniciar a etapa final da atualizacao.
     del "%APPLY_SCRIPT%" >nul 2>&1
+    del "%LAUNCHER_VBS%" >nul 2>&1
     echo Log: %LOG_FILE%
     >> "%LOG_FILE%" echo [ERRO] Nao foi possivel iniciar a etapa final da atualizacao.
     call :cleanup
     exit /b 1
 )
 
-echo O atualizador continuara em uma nova janela e reiniciara o agente ao final.
+del "%LAUNCHER_VBS%" >nul 2>&1
+echo O atualizador continuara em background e reiniciara o agente ao final.
 echo Se falhar, consulte: %LOG_FILE%
->> "%LOG_FILE%" echo [INFO] Main script handed over execution to helper window.
+>> "%LOG_FILE%" echo [INFO] Main script handed over execution to hidden helper process.
 exit /b 0
 
 :write_apply_script
@@ -167,7 +180,7 @@ exit /b 0
     echo del "%%INSTALL_PATH%%\.write_test" ^>nul 2^>^&1
     echo echo Copiando arquivos para "%%INSTALL_PATH%%"...
     echo echo [INFO] Copying files...^>^>"%%LOG_FILE%%"
-    echo robocopy "%%EXTRACT_DIR%%" "%%INSTALL_PATH%%" /E /R:3 /W:1 /NFL /NDL /NJH /NJS /NP
+    echo robocopy "%%EXTRACT_DIR%%" "%%INSTALL_PATH%%" /E /R:3 /W:1 /NFL /NDL /NJH /NJS /NP ^>^>"%%LOG_FILE%%" 2^>^&1
     echo set "ROBOCOPY_EXIT=!errorlevel!"
     echo echo [INFO] Robocopy exit code: !ROBOCOPY_EXIT!
     echo echo [INFO] Robocopy exit code: !ROBOCOPY_EXIT!^>^>"%%LOG_FILE%%"
@@ -195,6 +208,15 @@ exit /b 0
     echo if exist "%%TMP_ROOT%%" rmdir /s /q "%%TMP_ROOT%%" ^>nul 2^>^&1
     echo endlocal
 ) > "%APPLY_SCRIPT%"
+if errorlevel 1 exit /b 1
+exit /b 0
+
+:write_launcher_vbs
+(
+    echo Set shell = CreateObject^("WScript.Shell"^)
+    echo command = Chr^(34^) ^& WScript.Arguments^(0^) ^& Chr^(34^) ^& " " ^& Chr^(34^) ^& WScript.Arguments^(1^) ^& Chr^(34^) ^& " " ^& Chr^(34^) ^& WScript.Arguments^(2^) ^& Chr^(34^) ^& " " ^& Chr^(34^) ^& WScript.Arguments^(3^) ^& Chr^(34^) ^& " " ^& Chr^(34^) ^& WScript.Arguments^(4^) ^& Chr^(34^)
+    echo shell.Run command, 0, False
+) > "%LAUNCHER_VBS%"
 if errorlevel 1 exit /b 1
 exit /b 0
 
