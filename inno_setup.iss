@@ -1,5 +1,5 @@
 #define AppName "NetNotify Agent"
-#define AppVersion "1.5.1"
+#define AppVersion "1.5.2"
 #define AppPublisher "DER-PB"
 
 [Setup]

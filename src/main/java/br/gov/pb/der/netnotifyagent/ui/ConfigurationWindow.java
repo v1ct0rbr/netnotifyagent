@@ -43,8 +43,6 @@ public class ConfigurationWindow {
     private TextField passwordVisibleField;
     private boolean passwordVisible = false;
     private TextField exchangeField;
-    private TextField queueField;
-    private TextField routingKeyField;
     private TextField virtualhostField;
     private TextField departmentField;
     private ComboBox<String> notificationModeCombo;
@@ -109,8 +107,6 @@ public class ConfigurationWindow {
         this.passwordVisibleField.setVisible(false);
         this.passwordVisibleField.setManaged(false);
         this.exchangeField = createTextField("rabbitmq.exchange", "");
-        this.queueField = createTextField("rabbitmq.queue", "");
-        this.routingKeyField = createTextField("rabbitmq.routingkey", "");
         this.virtualhostField = createTextField("rabbitmq.virtualhost", "/");
         this.departmentField = createTextField("agent.department.name", "");
 
@@ -146,17 +142,17 @@ public class ConfigurationWindow {
         grid.add(new Label("Exchange:"), 0, row);
         grid.add(exchangeField, 1, row++);
 
-        grid.add(new Label("Fila:"), 0, row);
-        grid.add(queueField, 1, row++);
-
-        grid.add(new Label("Routing Key:"), 0, row);
-        grid.add(routingKeyField, 1, row++);
-
         grid.add(new Label("Virtual Host:"), 0, row);
         grid.add(virtualhostField, 1, row++);
 
         grid.add(new Label("Departamento:"), 0, row);
         grid.add(departmentField, 1, row++);
+
+        Label routingInfoLabel = new Label("Fila e routing keys são geradas automaticamente por hostname/departamento.");
+        routingInfoLabel.setWrapText(true);
+        routingInfoLabel.setStyle("-fx-text-fill: #666666; -fx-font-size: 11;");
+        grid.add(routingInfoLabel, 0, row, 2, 1);
+        row++;
 
         grid.add(new Label("Abrir notificações em:"), 0, row);
         grid.add(notificationModeCombo, 1, row++);
@@ -177,7 +173,7 @@ public class ConfigurationWindow {
                 // Sincronizar senha antes de salvar
                 syncPasswordField();
                 saveConfiguration(hostField, portField, usernameField, passwordField, exchangeField,
-                        queueField, routingKeyField, virtualhostField, departmentField);
+                        virtualhostField, departmentField);
                 showInfo("Configurações salvas com sucesso!\nO serviço será reiniciado com as novas definições.");
                 ConfigurationWindow.this.stage.close();
 
@@ -221,8 +217,6 @@ public class ConfigurationWindow {
         passwordField.setText(passwordValue);
         passwordVisibleField.setText(passwordValue);
         exchangeField.setText(properties.getProperty("rabbitmq.exchange", ""));
-        queueField.setText(properties.getProperty("rabbitmq.queue", ""));
-        routingKeyField.setText(properties.getProperty("rabbitmq.routingkey", ""));
         virtualhostField.setText(properties.getProperty("rabbitmq.virtualhost", "/"));
         departmentField.setText(properties.getProperty("agent.department.name", ""));
 
@@ -281,8 +275,7 @@ public class ConfigurationWindow {
 
     private void saveConfiguration(TextField... fields) throws IOException {
         String[] keys = { "rabbitmq.host", "rabbitmq.port", "rabbitmq.username", "rabbitmq.password",
-                "rabbitmq.exchange", "rabbitmq.queue", "rabbitmq.routingkey", "rabbitmq.virtualhost",
-                "agent.department.name" };
+                "rabbitmq.exchange", "rabbitmq.virtualhost", "agent.department.name" };
 
         Map<String, String> updates = new LinkedHashMap<>();
         for (int i = 0; i < fields.length && i < keys.length; i++) {

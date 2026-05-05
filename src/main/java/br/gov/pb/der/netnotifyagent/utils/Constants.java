@@ -19,7 +19,7 @@ public class Constants {
     public static final String ICON_48PX_PATH = "/images/icon_48px.png";
 
     public static final String APP_CREATOR = "Victor Queiroga";
-    public static final String APP_VERSION = "1.5.1";
+    public static final String APP_VERSION = "1.5.2";
     public static final String APP_COPYRIGHT = "© 2025 DER-PB. Todos os direitos reservados.";
 
     private Constants() {

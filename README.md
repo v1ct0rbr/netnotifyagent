@@ -1,6 +1,6 @@
 # NetNotify Agent
 
-Agente desktop para receber e exibir notificações via RabbitMQ. Fornece integração com exchanges/filas existentes, mostra mensagens HTML (com WebView / fallback Swing) e mantém ícone na bandeja para monitoramento do serviço.
+Agente desktop para receber e exibir notificações via RabbitMQ. Consome uma fila única por estação com bindings de broadcast, departamento e agente específico, mostra mensagens HTML (com WebView / fallback Swing) e mantém ícone na bandeja para monitoramento do serviço.
 
 ## Propósito
 O NetNotify Agent foi projetado para:
@@ -10,7 +10,7 @@ O NetNotify Agent foi projetado para:
 
 ## Funcionalidades principais
 - Consumo contínuo de mensagens RabbitMQ com reconexão automática.
-- Suporte a exchange + queue + routing key configuráveis.
+- Suporte a exchange configurável com geração automática da fila do agente e das routing keys.
 - Exibição de mensagens JSON mapeadas para DTO `Message` (title, content, level, type, user, timestamps).
 - Renderização HTML completa via JavaFX WebView (quando JavaFX estiver disponível corretamente).
 - Fallback para Swing (JEditorPane) com inlining de imagens remotos quando WebView não está disponível.
@@ -20,7 +20,7 @@ O NetNotify Agent foi projetado para:
 
 ## Arquitetura / principais classes
 - `Netnotifyagent` — ponto de entrada; inicializa `RabbitmqService` e `TrayService`, registra shutdown hook.
-- `RabbitmqService` — encapsula conexão, factory, reconexão, validação de fila/exchange e callbacks de consumo. Mantém regras e política de retry.
+- `RabbitmqService` — encapsula conexão, factory, reconexão, declaração da fila única do agente, bindings por escopo e callbacks de consumo. Mantém regras e política de retry.
 - `Alert` — responsável por exibir notificações; usa JavaFX WebView quando possível; possui fallback Swing + inlining de imagens.
 - `TrayService` — gerencia o ícone na bandeja e ações do usuário.
 - `dto.Message` — DTO que representa o JSON de mensagens recebidas.
@@ -37,13 +37,12 @@ rabbitmq.username=guest
 rabbitmq.password=guest
 rabbitmq.virtualhost=/
 rabbitmq.exchange=<nome_do_exchange>
-rabbitmq.queue=<nome_da_fila_existente>
-rabbitmq.routingkey=<routing_key_ou_vazio>
 ```
 
 Observações:
-- Para exchanges do tipo `fanout`, a routing key é ignorada.
-- O serviço verifica a fila com `queueDeclarePassive()` para não criar filas novas.
+- O agente gera automaticamente a fila `queue_agent_<hostname-normalizado>`.
+- Os bindings usados são `broadcast.general`, `department.<departamento-normalizado>` e `agent.<hostname-normalizado>`.
+- A fila do agente recebe `x-expires` para limpeza automática de filas órfãs.
 
 ## Requisitos
 - Java 17 (build compatível) — compilação e execução.
@@ -68,6 +67,22 @@ Recomendado usar o plugin OpenJFX (pom) para montar module-path automaticamente:
 
 ## Empacotamento / distribuição
 - Gerar JAR via Maven (`mvn package`) e distribuir junto com libs JavaFX em `libs/`, ou criar executável nativo (jlink / jpackage) incluindo runtime e bibliotecas nativas.
+- O script `update.bat` é distribuído junto dos demais scripts em `target\` e pode atualizar a instalação existente a partir de um ZIP remoto contendo o `.jar` e o `run.bat`.
+
+## Atualização automática
+- O script preferencial é `refresh-agent.bat`. Ele baixa `netnotify-update.zip`, encerra o agente em execução, extrai o pacote, substitui os arquivos na pasta de instalação e relança o `run.bat`.
+- `update.bat` foi mantido apenas como atalho para `refresh-agent.bat`, mas se o antivírus continuar implicando com esse nome use diretamente `refresh-agent.bat`.
+- Por segurança, o header `Authorization` **não é gravado no repositório**. O uso padrão é só com o token:
+
+  ```bat
+  refresh-agent.bat "SEU_TOKEN_AQUI"
+  ```
+
+- Se precisar, o caminho de instalação continua opcional como segundo argumento:
+
+  ```bat
+  refresh-agent.bat "SEU_TOKEN_AQUI" "C:\Program Files\NetNotifyAgent"
+  ```
 
 ## Comportamento em falta de JavaFX natives
 - Se `jfxwebkit` não estiver disponível, WebView lança `UnsatisfiedLinkError`.
@@ -77,7 +92,7 @@ Recomendado usar o plugin OpenJFX (pom) para montar module-path automaticamente:
 - Erros de conexão/retry são logados no console padrão.
 - Mensagens comuns:
   - `no jfxwebkit in java.library.path` → indicar que deve executar com module-path contendo libs nativas do JavaFX ou usar `mvn javafx:run`.
-  - `Fila '<nome>' não existe` → verifique `rabbitmq.queue` no settings e se a fila foi criada por produtor.
+  - `Exchange '<nome>' não existe` → verifique `rabbitmq.exchange` e se o servidor inicializou o broker.
 - Verifique `settings.properties`, permissões de rede e compatibilidade de arquitetura (JDK x JavaFX: ambos 64-bit, por exemplo).
 
 ## Segurança e robustez

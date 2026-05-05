@@ -7,6 +7,9 @@ import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -42,6 +45,11 @@ public class RabbitmqService {
     private static final int HEARTBEAT_INTERVAL_MS = 60000;
     private static final int CONNECTION_TIMEOUT_MS = 10000;
     private static final int CHANNEL_TIMEOUT_MS = 10000;
+    private static final int AGENT_QUEUE_EXPIRES_MS = 86_400_000;
+    private static final String AGENT_QUEUE_PREFIX = "queue_agent_";
+    private static final String BROADCAST_ROUTING_KEY = "broadcast.general";
+    private static final String DEPARTMENT_ROUTING_PREFIX = "department.";
+    private static final String AGENT_ROUTING_PREFIX = "agent.";
 
     private static final int SUMMARY_LINE_WIDTH = 60;
 
@@ -59,8 +67,7 @@ public class RabbitmqService {
     private String departmentName;
     private String hostname;
 
-    private String generalQueueName;
-    private String departmentQueueName;
+    private String agentQueueName;
 
     private String notificationsDisplayMode;
 
@@ -259,7 +266,7 @@ public class RabbitmqService {
 
     private void setupQueueAndExchangeConsumer(Channel channel) throws IOException {
 
-        logger.info("[SETUP] Configurando filas de consumo...");
+        logger.info("[SETUP] Configurando fila unica de consumo...");
 
         try {
             channel.exchangeDeclarePassive(exchangeName);
@@ -270,62 +277,31 @@ public class RabbitmqService {
             throw e;
         }
 
-        this.generalQueueName = "queue_agent_" + hostname;
-        logger.info("[FILA 1] Configurando fila geral...");
+        this.agentQueueName = AGENT_QUEUE_PREFIX + normalizeRoutingSegment(hostname);
+        Map<String, Object> queueArguments = new LinkedHashMap<>();
+        queueArguments.put("x-expires", AGENT_QUEUE_EXPIRES_MS);
 
         try {
-            channel.queueDeclare(generalQueueName, true, false, false, null);
-            logger.info("Fila Geral verificada/criada: {}", generalQueueName);
+            channel.queueDeclare(agentQueueName, true, false, false, queueArguments);
+            logger.info("Fila do agente verificada/criada: {}", agentQueueName);
         } catch (IOException e) {
-            logger.error("ERRO ao declarar fila '{}': {}", generalQueueName, e.getMessage());
+            logger.error("ERRO ao declarar fila '{}': {}", agentQueueName, e.getMessage());
             throw e;
         }
 
-        try {
-            channel.queueBind(generalQueueName, exchangeName, "broadcast.*");
-            logger.info("  -> Binding Pattern: broadcast.*");
-        } catch (IOException e) {
-            logger.error("ERRO ao fazer binding da fila '{}': {}", generalQueueName, e.getMessage());
-            throw e;
-        }
-
-        channel.basicConsume(generalQueueName, true,
-                createDeliverCallback("GERAL"),
-                createCancelCallback("GERAL"));
-        logger.info("  -> Consumindo: SIM");
-
-        logger.info("[FILA 2] Configurando fila de departamento...");
+        bindQueue(channel, BROADCAST_ROUTING_KEY);
+        bindQueue(channel, AGENT_ROUTING_PREFIX + normalizeRoutingSegment(hostname));
 
         if (departmentName != null && !departmentName.isEmpty() && !departmentName.equals("unknown")) {
-            String deptNameFormatted = departmentName.toLowerCase().replace(" ", "_");
-            this.departmentQueueName = "queue_department_" + deptNameFormatted + "_" + hostname;
-
-            try {
-                channel.queueDeclare(departmentQueueName, true, false, false, null);
-                logger.info("Fila Departamento verificada/criada: {}", departmentQueueName);
-            } catch (IOException e) {
-                logger.error("ERRO ao declarar fila '{}': {}", departmentQueueName, e.getMessage());
-                throw e;
-            }
-
-            String deptRoutingPattern = "department." + deptNameFormatted;
-            try {
-                channel.queueBind(departmentQueueName, exchangeName, deptRoutingPattern);
-                logger.info("  -> Binding Pattern: {}", deptRoutingPattern);
-            } catch (IOException e) {
-                logger.error("ERRO ao fazer binding da fila '{}': {}", departmentQueueName, e.getMessage());
-                throw e;
-            }
-
-            channel.basicConsume(departmentQueueName, true,
-                    createDeliverCallback("DEPARTAMENTO"),
-                    createCancelCallback("DEPARTAMENTO"));
-            logger.info("  -> Consumindo: SIM");
-
+            bindQueue(channel, DEPARTMENT_ROUTING_PREFIX + normalizeRoutingSegment(departmentName));
         } else {
-            logger.warn("AVISO: departmentName nao configurado! Agente recebera APENAS mensagens gerais.");
-            this.departmentQueueName = null;
+            logger.warn("AVISO: departmentName nao configurado! Agente recebera apenas broadcast e mensagens diretas.");
         }
+
+        channel.basicConsume(agentQueueName, true,
+                createDeliverCallback("AGENTE"),
+                createCancelCallback("AGENTE"));
+        logger.info("  -> Consumindo: SIM");
     }
 
     private void waitForConnection() throws InterruptedException {
@@ -356,8 +332,7 @@ public class RabbitmqService {
 
                 setupQueueAndExchangeConsumer(channel);
 
-                status = "Connected (General: " + generalQueueName +
-                        (departmentQueueName != null ? ", Dept: " + departmentQueueName : "") + ")";
+                status = "Connected (Queue: " + agentQueueName + ")";
                 logger.info("Conectado! Aguardando mensagens...");
 
                 waitForConnection();
@@ -468,6 +443,8 @@ public class RabbitmqService {
         sb.append(Functions.lineBuilder(userInfo, ' ', SUMMARY_LINE_WIDTH)).append("\n");
         String exchangeInfo = "Exchange: " + exchangeName;
         sb.append(Functions.lineBuilder(exchangeInfo, ' ', SUMMARY_LINE_WIDTH)).append("\n");
+        String queueInfo = "Fila: " + (agentQueueName != null ? agentQueueName : "nao conectada");
+        sb.append(Functions.lineBuilder(queueInfo, ' ', SUMMARY_LINE_WIDTH)).append("\n");
         sb.append(Functions.divideLine('=', SUMMARY_LINE_WIDTH)).append("\n");
         String departmentInfo = "Departamento: " + departmentName;
         sb.append(Functions.lineBuilder(departmentInfo, ' ', SUMMARY_LINE_WIDTH)).append("\n");
@@ -493,10 +470,28 @@ public class RabbitmqService {
     public int getPort() { return port; }
     public String getDepartmentName() { return departmentName; }
     public String getHostname() { return hostname; }
-    public String getGeneralQueueName() { return generalQueueName; }
-    public String getDepartmentQueueName() { return departmentQueueName; }
+    public String getAgentQueueName() { return agentQueueName; }
 
     public boolean isConnected() {
         return isConnected;
+    }
+
+    private void bindQueue(Channel channel, String routingKey) throws IOException {
+        channel.queueBind(agentQueueName, exchangeName, routingKey);
+        logger.info("  -> Binding Pattern: {}", routingKey);
+    }
+
+    private String normalizeRoutingSegment(String value) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("Routing segment cannot be blank");
+        }
+        String normalized = value.trim()
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "_")
+                .replaceAll("^_+|_+$", "");
+        if (normalized.isBlank()) {
+            throw new IllegalArgumentException("Routing segment cannot be blank");
+        }
+        return normalized;
     }
 }
