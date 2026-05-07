@@ -19,14 +19,14 @@ call mvn package -DskipTests
 
 echo.
 echo 3. Verificando arquivos gerados...
-if exist "target\netnotifyagent-1.5-SNAPSHOT.jar" (
-    echo ✓ Executavel criado: target\netnotifyagent-1.0-SNAPSHOT.jar
+if exist "target\netnotifyagent-1.6-SNAPSHOT.jar" (
+    echo ✓ Executavel criado: target\netnotifyagent-1.6-SNAPSHOT.jar
 ) else (
     echo ✗ Falha ao criar executavel
 )
 
-if exist "target\netnotifyagent-1.5-SNAPSHOT-dist.zip" (
-    echo ✓ Distribuicao criada: target\netnotifyagent-1.5-SNAPSHOT-dist.zip
+if exist "target\netnotifyagent-1.6-SNAPSHOT-dist.zip" (
+    echo ✓ Distribuicao criada: target\netnotifyagent-1.6-SNAPSHOT-dist.zip
 ) else (
     echo ✗ Falha ao criar distribuicao
 )
@@ -38,6 +38,6 @@ echo Para testar:
 echo   target\run.bat ou target\run.sh
 echo.
 echo Para distribuir:
-echo   target\netnotifyagent-1.5-SNAPSHOT-dist.zip
+echo   target\netnotifyagent-1.6-SNAPSHOT-dist.zip
 echo.
 pause

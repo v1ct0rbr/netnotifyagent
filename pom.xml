@@ -223,6 +223,7 @@
                                         <include>*.ps1</include>
                                         <include>*.sh</include>
                                         <include>*.vbs</include>
+                                        <include>*.cmd</include>
                                     </includes>
                                 </resource>
                             </resources>
