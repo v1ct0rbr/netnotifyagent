@@ -84,6 +84,8 @@ Recomendado usar o plugin OpenJFX (pom) para montar module-path automaticamente:
   refresh-agent.bat "SEU_TOKEN_AQUI" "C:\Program Files\NetNotifyAgent"
   ```
 
+- Quando o script for executado a partir de um compartilhamento de rede (`\\servidor\pasta\...`), ele passa a usar `C:\Program Files\NetNotifyAgent` por padrão em vez da pasta UNC. Se a instalação local estiver em outro diretório, informe-o explicitamente como segundo argumento.
+
 ## Comportamento em falta de JavaFX natives
 - Se `jfxwebkit` não estiver disponível, WebView lança `UnsatisfiedLinkError`.
 - O projeto contém fallback que usa Swing para exibir HTML (com limitação de CSS/JS) e tenta embutir imagens remotas (data URIs) para melhor renderização.

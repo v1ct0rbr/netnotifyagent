@@ -1,13 +1,27 @@
 @echo off
 setlocal EnableExtensions
 
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+
+cd /d "%SystemRoot%\System32" >nul 2>&1
+if errorlevel 1 (
+    echo [ERRO] Nao foi possivel preparar um diretorio de trabalho local valido.
+    exit /b 1
+)
+
 set "DEFAULT_INSTALL_PATH=C:\Program Files\NetNotifyAgent"
 set "DOWNLOAD_URL=https://n8n.derpb.com.br/webhook/53da4bd2-3119-490a-bb6d-1a7ffbfee274"
 set "ZIP_NAME=netnotify-update.zip"
 set "PROCESS_HINT=netnotifyagent-"
 set "AUTH_HEADER=%~1"
 set "INSTALL_PATH=%~2"
-set "LOG_FILE=%TEMP%\NetNotifyAgentRefresh_%RANDOM%_%RANDOM%.log"
+set "LOG_DIR=%ProgramData%\NetNotifyAgent"
+set "LOG_FILE=%LOG_DIR%\refresh-agent.log"
+set "CURL_CONNECT_TIMEOUT=15"
+set "CURL_MAX_TIME=180"
+
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
 
 > "%LOG_FILE%" echo ==== NetNotify Agent Refresh ====
 >> "%LOG_FILE%" echo Started: %date% %time%
@@ -23,11 +37,13 @@ if "%AUTH_HEADER%"=="" (
 )
 
 if "%INSTALL_PATH%"=="" (
-    set "SCRIPT_DIR=%~dp0"
+    set "INSTALL_PATH=%DEFAULT_INSTALL_PATH%"
     if exist "%SCRIPT_DIR%\run.bat" (
-        set "INSTALL_PATH=%SCRIPT_DIR%"
-    ) else (
-        set "INSTALL_PATH=%DEFAULT_INSTALL_PATH%"
+        if "%SCRIPT_DIR:~0,2%"=="\\" (
+            >> "%LOG_FILE%" echo [WARN] Script executado a partir de caminho UNC. Mantendo pasta de instalacao padrao: %DEFAULT_INSTALL_PATH%
+        ) else (
+            set "INSTALL_PATH=%SCRIPT_DIR%"
+        )
     )
 )
 
@@ -58,7 +74,9 @@ if errorlevel 1 (
 
 echo Baixando pacote de atualizacao...
 >> "%LOG_FILE%" echo [INFO] Downloading update package...
-curl.exe -L --fail --silent --show-error -H "Authorization: %AUTH_HEADER%" -o "%ZIP_PATH%" "%DOWNLOAD_URL%"
+>> "%LOG_FILE%" echo [INFO] curl connect-timeout: %CURL_CONNECT_TIMEOUT%s
+>> "%LOG_FILE%" echo [INFO] curl max-time: %CURL_MAX_TIME%s
+curl.exe -L --fail --silent --show-error --connect-timeout %CURL_CONNECT_TIMEOUT% --max-time %CURL_MAX_TIME% --retry 2 --retry-delay 2 -H "Authorization: %AUTH_HEADER%" -o "%ZIP_PATH%" "%DOWNLOAD_URL%"
 if errorlevel 1 (
     echo [ERRO] Falha ao baixar o pacote de atualizacao.
     echo Log: %LOG_FILE%
